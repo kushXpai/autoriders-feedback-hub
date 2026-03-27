@@ -1,0 +1,595 @@
+-- ============================================================
+-- ExxonMobil Car Rental Feedback Management System
+-- Database Schema Migration Script
+-- ============================================================
+
+-- 1. ENUMS
+-- ============================================================
+
+CREATE TYPE public.app_role AS ENUM ('admin', 'customer');
+CREATE TYPE public.expat_type AS ENUM ('new', 'existing');
+CREATE TYPE public.feedback_status AS ENUM ('pending', 'submitted');
+CREATE TYPE public.quarter_outcome AS ENUM ('on_target', 'below_target', 'penalty', 'incentive');
+CREATE TYPE public.question_section AS ENUM ('service_initiation', 'service_delivery', 'driver_quality', 'overall');
+
+-- 2. USERS & ROLES (leveraging Supabase auth.users)
+-- ============================================================
+
+-- Profiles table linked to auth.users
+CREATE TABLE public.profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- User roles table (never store roles on profiles)
+CREATE TABLE public.user_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    role app_role NOT NULL,
+    UNIQUE (user_id, role)
+);
+
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+-- Security definer function for role checks (avoids RLS recursion)
+CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role app_role)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.user_roles
+        WHERE user_id = _user_id
+          AND role = _role
+    )
+$$;
+
+-- 3. QUARTERS
+-- ============================================================
+
+CREATE TABLE public.quarters (
+    id VARCHAR(20) PRIMARY KEY,            -- e.g. 'q1-2026'
+    label VARCHAR(20) NOT NULL,            -- e.g. 'Q1 2026'
+    year INTEGER NOT NULL,
+    quarter_number INTEGER NOT NULL CHECK (quarter_number BETWEEN 1 AND 4),
+    is_active BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.quarters ENABLE ROW LEVEL SECURITY;
+
+-- Ensure only one active quarter at a time
+CREATE UNIQUE INDEX idx_quarters_single_active ON public.quarters (is_active) WHERE is_active = true;
+
+-- 4. CUSTOMERS (expatriates using the car rental service)
+-- ============================================================
+
+CREATE TABLE public.customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    phone VARCHAR(50),
+    employee_id VARCHAR(20) NOT NULL UNIQUE,  -- e.g. 'EMP-1042'
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at DATE NOT NULL DEFAULT CURRENT_DATE,
+    allocated_car VARCHAR(100),               -- e.g. 'Toyota Camry'
+    start_date DATE,                          -- rental start date
+    end_date DATE,                            -- rental end date
+    -- Optional link to auth user for customers who log in
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL
+);
+
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX idx_customers_email ON public.customers (email);
+CREATE INDEX idx_customers_user_id ON public.customers (user_id);
+
+-- 5. CUSTOMER QUARTER PROFILES
+-- Tracks each customer's expat type per quarter
+-- ============================================================
+
+CREATE TABLE public.customer_quarter_profiles (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
+    quarter_id VARCHAR(20) NOT NULL REFERENCES public.quarters(id) ON DELETE CASCADE,
+    expat_type expat_type NOT NULL DEFAULT 'existing',
+    UNIQUE (customer_id, quarter_id)
+);
+
+ALTER TABLE public.customer_quarter_profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX idx_cqp_customer ON public.customer_quarter_profiles (customer_id);
+CREATE INDEX idx_cqp_quarter ON public.customer_quarter_profiles (quarter_id);
+
+-- 6. SURVEY QUESTIONS
+-- ============================================================
+
+CREATE TABLE public.questions (
+    id SERIAL PRIMARY KEY,
+    question_number INTEGER NOT NULL UNIQUE,
+    text TEXT NOT NULL,
+    section question_section NOT NULL,
+    is_new_expat_only BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
+
+-- 7. FEEDBACK ASSIGNMENTS
+-- Links a customer to a quarter for feedback collection
+-- ============================================================
+
+CREATE TABLE public.feedback_assignments (
+    id SERIAL PRIMARY KEY,
+    quarter_id VARCHAR(20) NOT NULL REFERENCES public.quarters(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
+    status feedback_status NOT NULL DEFAULT 'pending',
+    submitted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (quarter_id, customer_id)
+);
+
+ALTER TABLE public.feedback_assignments ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX idx_fa_quarter ON public.feedback_assignments (quarter_id);
+CREATE INDEX idx_fa_customer ON public.feedback_assignments (customer_id);
+CREATE INDEX idx_fa_status ON public.feedback_assignments (status);
+
+-- 8. FEEDBACK RESPONSES
+-- Individual question scores per assignment
+-- ============================================================
+
+CREATE TABLE public.feedback_responses (
+    id SERIAL PRIMARY KEY,
+    assignment_id INTEGER NOT NULL REFERENCES public.feedback_assignments(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES public.questions(id) ON DELETE CASCADE,
+    score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 4),
+    UNIQUE (assignment_id, question_id)
+);
+
+ALTER TABLE public.feedback_responses ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX idx_fr_assignment ON public.feedback_responses (assignment_id);
+
+-- 9. FEEDBACK COMMENTS
+-- Optional free-text comment per assignment
+-- ============================================================
+
+CREATE TABLE public.feedback_comments (
+    id SERIAL PRIMARY KEY,
+    assignment_id INTEGER NOT NULL REFERENCES public.feedback_assignments(id) ON DELETE CASCADE UNIQUE,
+    comment TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.feedback_comments ENABLE ROW LEVEL SECURITY;
+
+-- 10. QUARTER REPORTS (aggregated KPI data per quarter)
+-- ============================================================
+
+CREATE TABLE public.quarter_reports (
+    id SERIAL PRIMARY KEY,
+    quarter_id VARCHAR(20) NOT NULL REFERENCES public.quarters(id) ON DELETE CASCADE UNIQUE,
+    total_respondents INTEGER NOT NULL DEFAULT 0,
+    total_assigned INTEGER NOT NULL DEFAULT 0,
+    new_expat_count INTEGER NOT NULL DEFAULT 0,
+    -- Service Initiation KPI
+    si_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    si_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    -- Service Delivery KPI
+    sd_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    sd_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    -- Driver Quality KPI
+    dq_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    dq_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    -- Overall Service KPI
+    os_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    os_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    -- Overall percentage and outcome
+    overall_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    outcome quarter_outcome NOT NULL DEFAULT 'on_target',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.quarter_reports ENABLE ROW LEVEL SECURITY;
+
+-- 11. DASHBOARD METRICS (snapshot per quarter)
+-- ============================================================
+
+CREATE TABLE public.dashboard_metrics (
+    id SERIAL PRIMARY KEY,
+    quarter_id VARCHAR(20) NOT NULL REFERENCES public.quarters(id) ON DELETE CASCADE UNIQUE,
+    total_active_customers INTEGER NOT NULL DEFAULT 0,
+    current_quarter_responded INTEGER NOT NULL DEFAULT 0,
+    current_quarter_total INTEGER NOT NULL DEFAULT 0,
+    overall_satisfaction NUMERIC(5,2) NOT NULL DEFAULT 0,
+    penalty_applies BOOLEAN NOT NULL DEFAULT false,
+    incentive_applies BOOLEAN NOT NULL DEFAULT false,
+    -- KPI breakdown
+    si_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    si_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    sd_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    sd_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    dq_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    dq_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    os_avg NUMERIC(4,2) NOT NULL DEFAULT 0,
+    os_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.dashboard_metrics ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- ROW LEVEL SECURITY POLICIES
+-- ============================================================
+
+-- Profiles: users can read their own, admins can read all
+CREATE POLICY "Users can view own profile"
+    ON public.profiles FOR SELECT
+    TO authenticated
+    USING (id = auth.uid());
+
+CREATE POLICY "Admins can view all profiles"
+    ON public.profiles FOR SELECT
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Users can update own profile"
+    ON public.profiles FOR UPDATE
+    TO authenticated
+    USING (id = auth.uid());
+
+-- User roles: only admins can manage
+CREATE POLICY "Admins can manage roles"
+    ON public.user_roles FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+-- Quarters: readable by all authenticated users
+CREATE POLICY "Authenticated users can view quarters"
+    ON public.quarters FOR SELECT
+    TO authenticated
+    USING (true);
+
+CREATE POLICY "Admins can manage quarters"
+    ON public.quarters FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+-- Customers: admins can manage, customers can view own
+CREATE POLICY "Admins can manage customers"
+    ON public.customers FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Customers can view own record"
+    ON public.customers FOR SELECT
+    TO authenticated
+    USING (user_id = auth.uid());
+
+-- Customer quarter profiles: admins manage, customers view own
+CREATE POLICY "Admins can manage customer quarter profiles"
+    ON public.customer_quarter_profiles FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Customers can view own quarter profiles"
+    ON public.customer_quarter_profiles FOR SELECT
+    TO authenticated
+    USING (
+        customer_id IN (
+            SELECT id FROM public.customers WHERE user_id = auth.uid()
+        )
+    );
+
+-- Questions: readable by all authenticated users
+CREATE POLICY "Authenticated users can view questions"
+    ON public.questions FOR SELECT
+    TO authenticated
+    USING (true);
+
+CREATE POLICY "Admins can manage questions"
+    ON public.questions FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+-- Feedback assignments: admins manage all, customers view/update own
+CREATE POLICY "Admins can manage feedback assignments"
+    ON public.feedback_assignments FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Customers can view own assignments"
+    ON public.feedback_assignments FOR SELECT
+    TO authenticated
+    USING (
+        customer_id IN (
+            SELECT id FROM public.customers WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Customers can update own pending assignments"
+    ON public.feedback_assignments FOR UPDATE
+    TO authenticated
+    USING (
+        customer_id IN (
+            SELECT id FROM public.customers WHERE user_id = auth.uid()
+        )
+        AND status = 'pending'
+    );
+
+-- Feedback responses: admins view all, customers manage own
+CREATE POLICY "Admins can view all feedback responses"
+    ON public.feedback_responses FOR SELECT
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Customers can manage own responses"
+    ON public.feedback_responses FOR ALL
+    TO authenticated
+    USING (
+        assignment_id IN (
+            SELECT fa.id FROM public.feedback_assignments fa
+            JOIN public.customers c ON fa.customer_id = c.id
+            WHERE c.user_id = auth.uid()
+        )
+    );
+
+-- Feedback comments: same pattern as responses
+CREATE POLICY "Admins can view all comments"
+    ON public.feedback_comments FOR SELECT
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Customers can manage own comments"
+    ON public.feedback_comments FOR ALL
+    TO authenticated
+    USING (
+        assignment_id IN (
+            SELECT fa.id FROM public.feedback_assignments fa
+            JOIN public.customers c ON fa.customer_id = c.id
+            WHERE c.user_id = auth.uid()
+        )
+    );
+
+-- Quarter reports & dashboard metrics: readable by all authenticated
+CREATE POLICY "Authenticated users can view quarter reports"
+    ON public.quarter_reports FOR SELECT
+    TO authenticated
+    USING (true);
+
+CREATE POLICY "Admins can manage quarter reports"
+    ON public.quarter_reports FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Authenticated users can view dashboard metrics"
+    ON public.dashboard_metrics FOR SELECT
+    TO authenticated
+    USING (true);
+
+CREATE POLICY "Admins can manage dashboard metrics"
+    ON public.dashboard_metrics FOR ALL
+    TO authenticated
+    USING (public.has_role(auth.uid(), 'admin'));
+
+-- ============================================================
+-- SEED DATA: QUARTERS
+-- ============================================================
+
+INSERT INTO public.quarters (id, label, year, quarter_number, is_active) VALUES
+    ('q3-2024', 'Q3 2024', 2024, 3, false),
+    ('q4-2024', 'Q4 2024', 2024, 4, false),
+    ('q1-2025', 'Q1 2025', 2025, 1, false),
+    ('q2-2025', 'Q2 2025', 2025, 2, false),
+    ('q3-2025', 'Q3 2025', 2025, 3, false),
+    ('q4-2025', 'Q4 2025', 2025, 4, false),
+    ('q1-2026', 'Q1 2026', 2026, 1, true);
+
+-- ============================================================
+-- SEED DATA: SURVEY QUESTIONS
+-- ============================================================
+
+INSERT INTO public.questions (question_number, text, section, is_new_expat_only) VALUES
+    (1, 'I have been provided with sufficient information on rental process, car options and planned delivery.', 'service_initiation', true),
+    (2, 'Administrative staff is easy to work with and promptly respond to my requests.', 'service_initiation', true),
+    (3, 'I am clearly communicated on items covered under lease car agreement and driver''s service fees.', 'service_initiation', true),
+    (4, 'My car order is timely delivered to me as planned.', 'service_initiation', true),
+    (5, 'The car meets my expectation and is in perfect condition (cleanliness, safety and functionality) upon delivery.', 'service_initiation', true),
+    (6, 'The car is regularly taken for maintenance service.', 'service_delivery', false),
+    (7, 'Please rate the quality of regular servicing (car check up and maintenance).', 'service_delivery', false),
+    (8, 'Interior and exterior of the car is well maintained in terms of cleanliness and functionality.', 'service_delivery', false),
+    (9, 'I always receive prompt response on emergency or special request from administrative staff.', 'service_delivery', false),
+    (10, 'I am timely informed in advance about car maintenance schedule and provided with interim car, if needed.', 'service_delivery', false),
+    (11, 'Billing and invoicing process is accurate and easy to settle.', 'service_delivery', false),
+    (12, 'Driver always reports to work on time and fulfills his duty during service hours.', 'driver_quality', false),
+    (13, 'Driver communicates English well and actively responds to my request.', 'driver_quality', false),
+    (14, 'Driver is patient, calm and has good driving behaviour.', 'driver_quality', false),
+    (15, 'Driver is well-trained on road safety and follows traffic rules and regulations.', 'driver_quality', false),
+    (16, 'Driver is well-groomed and dressed appropriately.', 'driver_quality', false),
+    (17, 'Driver is flexible to special requests.', 'driver_quality', false),
+    (18, 'Please rate your overall experience with car rental services in the past 6 months.', 'overall', false);
+
+-- ============================================================
+-- SEED DATA: CUSTOMERS
+-- ============================================================
+
+INSERT INTO public.customers (id, name, email, phone, employee_id, is_active, created_at, allocated_car, start_date, end_date) VALUES
+    (1, 'Robert Tanaka', 'robert.tanaka@exxon.com', '+966 55 123 4567', 'EMP-1042', true, '2024-08-15', 'Toyota Camry', '2024-08-15', '2026-08-15'),
+    (2, 'Maria Gonzalez', 'maria.gonzalez@exxon.com', '+966 55 234 5678', 'EMP-1105', true, '2024-09-01', 'Honda Accord', '2024-09-01', '2026-09-01'),
+    (3, 'Ahmad Al-Rashid', 'ahmad.alrashid@exxon.com', '+966 55 345 6789', 'EMP-0987', true, '2024-03-12', 'Toyota Land Cruiser', '2024-03-12', '2026-03-12'),
+    (4, 'Chen Wei Lin', 'chen.weilin@exxon.com', '+966 55 456 7890', 'EMP-1201', true, '2025-01-10', 'Hyundai Sonata', '2025-01-10', '2027-01-10'),
+    (5, 'Fatima Okonkwo', 'fatima.okonkwo@exxon.com', '+966 55 567 8901', 'EMP-0854', true, '2023-11-20', 'Nissan Maxima', '2023-11-20', '2025-11-20'),
+    (6, 'James Henderson', 'customer@exxon.com', '+966 55 678 9012', 'EMP-1150', true, '2024-10-05', 'Toyota Camry', '2024-10-05', '2026-10-05'),
+    (7, 'Priya Sharma', 'priya.sharma@exxon.com', '+966 55 789 0123', 'EMP-0912', false, '2024-01-18', 'Kia K5', '2024-01-18', '2025-07-18'),
+    (8, 'Lars Eriksson', 'lars.eriksson@exxon.com', '+966 55 890 1234', 'EMP-1078', true, '2024-07-22', 'GMC Yukon', '2024-07-22', '2026-07-22'),
+    (9, 'Yuki Watanabe', 'yuki.watanabe@exxon.com', '+966 55 901 2345', 'EMP-1190', true, '2025-01-05', 'Honda Accord', '2025-01-05', '2027-01-05'),
+    (10, 'David Mensah', 'david.mensah@exxon.com', '+966 55 012 3456', 'EMP-0765', false, '2023-06-14', 'Toyota Corolla', '2023-06-14', '2025-06-14'),
+    (11, 'Sophie Dubois', 'sophie.dubois@exxon.com', '+966 55 111 2233', 'EMP-1220', true, '2025-02-01', 'Chevrolet Malibu', '2025-02-01', '2027-02-01'),
+    (12, 'Khalid Al-Dosari', 'khalid.dosari@exxon.com', '+966 55 222 3344', 'EMP-0630', false, '2023-02-28', 'Nissan Patrol', '2023-02-28', '2025-02-28');
+
+-- Reset sequence after explicit ID inserts
+SELECT setval('customers_id_seq', (SELECT MAX(id) FROM public.customers));
+
+-- ============================================================
+-- SEED DATA: CUSTOMER QUARTER PROFILES
+-- ============================================================
+
+INSERT INTO public.customer_quarter_profiles (customer_id, quarter_id, expat_type) VALUES
+    (1, 'q1-2026', 'existing'),
+    (2, 'q1-2026', 'existing'),
+    (3, 'q1-2026', 'existing'),
+    (4, 'q1-2026', 'new'),
+    (5, 'q1-2026', 'existing'),
+    (6, 'q1-2026', 'existing'),
+    (7, 'q4-2025', 'existing'),
+    (8, 'q1-2026', 'existing'),
+    (9, 'q1-2026', 'new'),
+    (10, 'q4-2025', 'new'),
+    (11, 'q1-2026', 'new'),
+    (12, 'q3-2025', 'existing'),
+    (1, 'q4-2025', 'new'),
+    (2, 'q4-2025', 'existing'),
+    (3, 'q4-2025', 'existing'),
+    (5, 'q4-2025', 'existing'),
+    (6, 'q3-2025', 'new'),
+    (6, 'q4-2025', 'existing'),
+    (6, 'q2-2025', 'existing'),
+    (8, 'q4-2025', 'new');
+
+-- ============================================================
+-- SEED DATA: FEEDBACK ASSIGNMENTS
+-- ============================================================
+
+INSERT INTO public.feedback_assignments (id, quarter_id, customer_id, status, submitted_at) VALUES
+    (1, 'q1-2026', 1, 'submitted', '2026-03-20T14:32:00Z'),
+    (2, 'q1-2026', 2, 'submitted', '2026-03-20T12:15:00Z'),
+    (3, 'q1-2026', 3, 'submitted', '2026-03-20T09:45:00Z'),
+    (4, 'q1-2026', 4, 'submitted', '2026-03-19T16:20:00Z'),
+    (5, 'q1-2026', 5, 'submitted', '2026-03-18T11:30:00Z'),
+    (6, 'q1-2026', 6, 'pending', NULL),
+    (7, 'q1-2026', 8, 'submitted', '2026-03-16T15:10:00Z'),
+    (8, 'q1-2026', 9, 'submitted', '2026-03-15T10:00:00Z'),
+    (9, 'q1-2026', 11, 'pending', NULL),
+    (10, 'q4-2025', 1, 'submitted', '2025-12-18T13:20:00Z'),
+    (11, 'q4-2025', 2, 'submitted', '2025-12-17T09:10:00Z'),
+    (12, 'q4-2025', 3, 'submitted', '2025-12-15T14:45:00Z'),
+    (13, 'q4-2025', 5, 'submitted', '2025-12-14T11:00:00Z'),
+    (14, 'q4-2025', 7, 'submitted', '2025-12-12T16:30:00Z'),
+    (15, 'q4-2025', 8, 'submitted', '2025-12-10T08:20:00Z'),
+    (16, 'q4-2025', 10, 'pending', NULL),
+    (17, 'q3-2025', 6, 'submitted', '2025-09-20T10:15:00Z'),
+    (18, 'q3-2025', 12, 'submitted', '2025-09-18T14:00:00Z'),
+    (19, 'q4-2025', 6, 'submitted', '2025-12-19T09:30:00Z'),
+    (20, 'q2-2025', 6, 'submitted', '2025-06-15T11:45:00Z');
+
+SELECT setval('feedback_assignments_id_seq', (SELECT MAX(id) FROM public.feedback_assignments));
+
+-- ============================================================
+-- SEED DATA: QUARTER REPORTS
+-- ============================================================
+
+INSERT INTO public.quarter_reports (quarter_id, total_respondents, total_assigned, new_expat_count, si_avg, si_pct, sd_avg, sd_pct, dq_avg, dq_pct, os_avg, os_pct, overall_pct, outcome) VALUES
+    ('q1-2026', 8, 9, 3, 3.33, 83.3, 3.42, 85.4, 3.38, 84.4, 3.38, 84.4, 84.4, 'incentive'),
+    ('q4-2025', 5, 7, 2, 3.47, 86.7, 3.33, 83.3, 3.39, 84.7, 3.40, 85.0, 84.9, 'on_target'),
+    ('q3-2025', 2, 2, 1, 3.40, 85.0, 3.08, 77.1, 3.17, 79.2, 3.50, 87.5, 82.2, 'below_target'),
+    ('q2-2025', 6, 8, 1, 3.20, 80.0, 2.89, 72.2, 2.94, 73.6, 2.83, 70.8, 74.2, 'penalty'),
+    ('q1-2025', 7, 9, 2, 3.30, 82.5, 3.45, 86.3, 3.52, 88.1, 3.43, 85.7, 85.6, 'on_target');
+
+-- ============================================================
+-- SEED DATA: DASHBOARD METRICS
+-- ============================================================
+
+INSERT INTO public.dashboard_metrics (quarter_id, total_active_customers, current_quarter_responded, current_quarter_total, overall_satisfaction, penalty_applies, incentive_applies, si_avg, si_pct, sd_avg, sd_pct, dq_avg, dq_pct, os_avg, os_pct) VALUES
+    ('q3-2024', 34, 30, 34, 76.8, true, false, 2.95, 73.8, 3.10, 77.5, 3.05, 76.3, 3.08, 77.0),
+    ('q4-2024', 36, 33, 36, 78.5, true, false, 3.02, 75.5, 3.18, 79.5, 3.14, 78.5, 3.15, 78.8),
+    ('q1-2025', 38, 36, 38, 81.2, false, false, 3.15, 78.8, 3.30, 82.5, 3.28, 82.0, 3.25, 81.3),
+    ('q2-2025', 40, 38, 40, 79.4, true, false, 3.05, 76.3, 3.22, 80.5, 3.18, 79.5, 3.18, 79.5),
+    ('q3-2025', 42, 40, 42, 82.7, false, false, 3.20, 80.0, 3.35, 83.8, 3.38, 84.5, 3.31, 82.8),
+    ('q4-2025', 44, 42, 44, 85.1, false, true, 3.35, 83.8, 3.44, 86.0, 3.50, 87.5, 3.41, 85.3),
+    ('q1-2026', 47, 34, 47, 87.3, false, true, 3.42, 85.5, 3.51, 87.8, 3.56, 89.0, 3.49, 87.3);
+
+-- ============================================================
+-- HELPER FUNCTIONS
+-- ============================================================
+
+-- Function to calculate KPI percentage from average (scale 1-4, target mapped to 0-100%)
+CREATE OR REPLACE FUNCTION public.avg_to_pct(avg_score NUMERIC)
+RETURNS NUMERIC
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT ROUND((avg_score / 4.0) * 100, 1)
+$$;
+
+-- Function to determine quarter outcome based on overall percentage
+CREATE OR REPLACE FUNCTION public.determine_outcome(overall_pct NUMERIC)
+RETURNS quarter_outcome
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT CASE
+        WHEN overall_pct >= 85.0 THEN 'incentive'::quarter_outcome
+        WHEN overall_pct >= 80.0 THEN 'on_target'::quarter_outcome
+        WHEN overall_pct >= 75.0 THEN 'below_target'::quarter_outcome
+        ELSE 'penalty'::quarter_outcome
+    END
+$$;
+
+-- ============================================================
+-- TRIGGERS
+-- ============================================================
+
+-- Auto-update updated_at on profiles
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER on_profiles_updated
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_updated_at();
+
+CREATE TRIGGER on_quarter_reports_updated
+    BEFORE UPDATE ON public.quarter_reports
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_updated_at();
+
+-- Auto-create profile on new auth user signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    INSERT INTO public.profiles (id, name, email)
+    VALUES (
+        NEW.id,
+        COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+        NEW.email
+    );
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_new_user();
