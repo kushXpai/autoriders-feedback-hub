@@ -23,11 +23,29 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function AuthRedirect() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
+
+  if (loading) return null;
+
   if (isAuthenticated) {
     return <Navigate to={user?.role === 'admin' ? '/admin' : '/customer'} replace />;
   }
-  return <LoginPage />;
+
+  return <Navigate to="/login" replace />;
+}
+
+function RequireAuth({ role }: { role?: 'admin' | 'customer' }) {
+  const { isAuthenticated, user, loading } = useAuth();
+
+  if (loading) return null;
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  if (role && user?.role !== role) {
+    return <Navigate to={user?.role === 'admin' ? '/admin' : '/customer'} replace />;
+  }
+
+  return null;
 }
 
 const App = () => (
@@ -35,10 +53,12 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <AuthProvider>
-        <BrowserRouter>
+      <BrowserRouter>
+        <AuthProvider>
           <Routes>
             <Route path="/" element={<AuthRedirect />} />
+            <Route path="/login" element={<LoginPage />} />
+
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="customers" element={<CustomersPage />} />
@@ -49,16 +69,18 @@ const App = () => (
               <Route path="send-feedback" element={<SendFeedbackPage />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>
+
             <Route path="/customer" element={<CustomerLayout />}>
               <Route index element={<CustomerDashboardPage />} />
               <Route path="feedback" element={<CustomerFeedbackFormPage />} />
               <Route path="history" element={<CustomerPreviousFeedbackPage />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>
+
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </BrowserRouter>
-      </AuthProvider>
+        </AuthProvider>
+      </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );

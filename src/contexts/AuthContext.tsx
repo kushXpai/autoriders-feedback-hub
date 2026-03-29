@@ -1,4 +1,9 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+// src/contexts/AuthContext.tsx
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/supabase/client';
+import { signIn, signOut, updatePassword } from '@/supabase/auth';
+import type { AppRole, Profile, UserRole as DBUserRole } from '@/types/database.types';
+
 export type UserRole = 'admin' | 'customer';
 
 export interface User {
@@ -10,69 +15,107 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => { success: boolean; error?: string };
-  logout: () => void;
-  resetPassword: (email: string, newPassword: string) => { success: boolean; error?: string };
-  changePassword: (currentPassword: string, newPassword: string) => { success: boolean; error?: string };
   isAuthenticated: boolean;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  resetPassword: (email: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
-
-const INITIAL_ACCOUNTS: Record<string, { password: string; user: User }> = {
-  'admin@exxon.com': {
-    password: 'admin123',
-    user: { id: '1', name: 'Sarah Mitchell', email: 'admin@exxon.com', role: 'admin' },
-  },
-  'customer@exxon.com': {
-    password: 'customer123',
-    user: { id: '2', name: 'James Henderson', email: 'customer@exxon.com', role: 'customer' },
-  },
-};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [accounts, setAccounts] = useState(INITIAL_ACCOUNTS);
+  const [loading, setLoading] = useState(true);
 
-  const login = useCallback((email: string, password: string) => {
-    const account = accounts[email.toLowerCase()];
-    if (!account) return { success: false, error: 'Invalid email or password' };
-    if (account.password !== password) return { success: false, error: 'Invalid email or password' };
-    setUser(account.user);
+  const loadUserProfile = useCallback(async (userId: string): Promise<void> => {
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('name, email')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profileData) return;
+    const profile = profileData as Pick<Profile, 'name' | 'email'>;
+
+    const { data: roleData, error: roleError } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', userId)
+      .single();
+
+    if (roleError || !roleData) return;
+    const roleRow = roleData as Pick<DBUserRole, 'role'>;
+
+    setUser({
+      id: userId,
+      name: profile.name,
+      email: profile.email,
+      role: roleRow.role as AppRole,
+    });
+  }, []);
+
+  // Restore session on mount
+  useEffect(() => {
+    const restoreSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await loadUserProfile(session.user.id);
+      }
+      setLoading(false);
+    };
+
+    restoreSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        await loadUserProfile(session.user.id);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [loadUserProfile]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const result = await signIn(email, password);
+    if (!result) return { success: false, error: 'Invalid email or password' };
+    setUser(result);
     return { success: true };
-  }, [accounts]);
+  }, []);
 
-  const logout = useCallback(() => setUser(null), []);
+  const logout = useCallback(async () => {
+    await signOut();
+    setUser(null);
+  }, []);
 
-  const resetPassword = useCallback((email: string, newPassword: string) => {
-    const key = email.toLowerCase();
-    const account = accounts[key];
-    if (!account) return { success: false, error: 'No account found with this email' };
-    if (newPassword.length < 6) return { success: false, error: 'Password must be at least 6 characters' };
-    setAccounts(prev => ({
-      ...prev,
-      [key]: { ...prev[key], password: newPassword },
-    }));
-    return { success: true };
-  }, [accounts]);
-
-  const changePassword = useCallback((currentPassword: string, newPassword: string) => {
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     if (!user) return { success: false, error: 'Not logged in' };
-    const key = user.email.toLowerCase();
-    const account = accounts[key];
-    if (!account) return { success: false, error: 'Account not found' };
-    if (account.password !== currentPassword) return { success: false, error: 'Current password is incorrect' };
-    if (newPassword.length < 6) return { success: false, error: 'New password must be at least 6 characters' };
-    setAccounts(prev => ({
-      ...prev,
-      [key]: { ...prev[key], password: newPassword },
-    }));
+
+    const { error: reAuthError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: currentPassword,
+    });
+    if (reAuthError) return { success: false, error: 'Current password is incorrect' };
+
+    return updatePassword(newPassword);
+  }, [user]);
+
+  const resetPassword = useCallback(async (email: string, _newPassword: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) return { success: false, error: error.message };
     return { success: true };
-  }, [user, accounts]);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, resetPassword, changePassword, isAuthenticated: !!user }}>
-      {children}
+    <AuthContext.Provider
+      value={{ user, isAuthenticated: !!user, loading, login, logout, changePassword, resetPassword }}
+    >
+      {!loading && children}
     </AuthContext.Provider>
   );
 }

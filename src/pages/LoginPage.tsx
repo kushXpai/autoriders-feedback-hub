@@ -1,10 +1,14 @@
+// src/pages/LoginPage.tsx
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Car, Eye, EyeOff } from 'lucide-react';
 
@@ -12,6 +16,7 @@ export default function LoginPage() {
   const { login, resetPassword } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -21,39 +26,42 @@ export default function LoginPage() {
   // Reset password state
   const [resetOpen, setResetOpen] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
-  const [resetNewPw, setResetNewPw] = useState('');
-  const [resetConfirmPw, setResetConfirmPw] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    setTimeout(() => {
-      const result = login(email, password);
-      setLoading(false);
-      if (result.success) {
-        const account = email.toLowerCase();
-        navigate(account === 'admin@exxon.com' ? '/admin' : '/customer');
-      } else {
-        setError(result.error || 'Login failed');
-      }
-    }, 400);
+    const result = await login(email, password);
+    setLoading(false);
+
+    if (result.success) {
+      // Role-based redirect is handled by layouts, but we still need
+      // to push the user somewhere — useAuth's user state drives the layouts.
+      // We navigate to /admin or /customer based on the resolved user role.
+      navigate(email.toLowerCase().includes('admin') ? '/admin' : '/customer', { replace: true });
+    } else {
+      setError(result.error || 'Login failed');
+    }
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     setResetError('');
     if (!resetEmail) { setResetError('Enter your email'); return; }
-    if (resetNewPw.length < 6) { setResetError('Password must be at least 6 characters'); return; }
-    if (resetNewPw !== resetConfirmPw) { setResetError('Passwords do not match'); return; }
-    const result = resetPassword(resetEmail, resetNewPw);
+
+    setResetLoading(true);
+    const result = await resetPassword(resetEmail, '');
+    setResetLoading(false);
+
     if (result.success) {
-      toast({ title: 'Password reset', description: 'Your password has been updated. You can now sign in.' });
+      toast({
+        title: 'Reset email sent',
+        description: 'Check your inbox for a password reset link.',
+      });
       setResetOpen(false);
       setResetEmail('');
-      setResetNewPw('');
-      setResetConfirmPw('');
     } else {
       setResetError(result.error || 'Reset failed');
     }
@@ -76,14 +84,34 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm font-medium">Email</Label>
-              <Input id="email" type="email" placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)} required className="h-11" />
+              <Input
+                id="email"
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                className="h-11"
+              />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="password" className="text-sm font-medium">Password</Label>
               <div className="relative">
-                <Input id="password" type={showPassword ? 'text' : 'password'} placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} required className="h-11 pr-10" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  className="h-11 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
@@ -95,37 +123,25 @@ export default function LoginPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-medium" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+            <Button
+              type="submit"
+              className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
+              disabled={loading}
+            >
+              {loading ? 'Signing in…' : 'Sign In'}
             </Button>
           </form>
 
           <button
-            onClick={() => { setResetOpen(true); setResetEmail(email); setResetError(''); setResetNewPw(''); setResetConfirmPw(''); }}
+            onClick={() => {
+              setResetOpen(true);
+              setResetEmail(email);
+              setResetError('');
+            }}
             className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors mt-4"
           >
             Forgot password?
           </button>
-
-          <div className="mt-6 pt-5 border-t border-border">
-            <p className="text-xs text-muted-foreground mb-3 font-medium uppercase tracking-wider">Demo Accounts</p>
-            <div className="space-y-2">
-              <button
-                onClick={() => { setEmail('admin@exxon.com'); setPassword('admin123'); }}
-                className="w-full text-left text-xs px-3 py-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors active:scale-[0.98]"
-              >
-                <span className="font-medium text-foreground">Admin:</span>{' '}
-                <span className="text-muted-foreground">admin@exxon.com / admin123</span>
-              </button>
-              <button
-                onClick={() => { setEmail('customer@exxon.com'); setPassword('customer123'); }}
-                className="w-full text-left text-xs px-3 py-2 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors active:scale-[0.98]"
-              >
-                <span className="font-medium text-foreground">Customer:</span>{' '}
-                <span className="text-muted-foreground">customer@exxon.com / customer123</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -134,28 +150,31 @@ export default function LoginPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Reset Password</DialogTitle>
-            <DialogDescription>Enter your email and choose a new password.</DialogDescription>
+            <DialogDescription>
+              Enter your email and we'll send you a reset link.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Email</Label>
-              <Input type="email" value={resetEmail} onChange={e => setResetEmail(e.target.value)} placeholder="your@email.com" />
+              <Input
+                type="email"
+                value={resetEmail}
+                onChange={e => setResetEmail(e.target.value)}
+                placeholder="your@email.com"
+              />
             </div>
-            <div className="space-y-1.5">
-              <Label>New Password</Label>
-              <Input type="password" value={resetNewPw} onChange={e => setResetNewPw(e.target.value)} placeholder="Min 6 characters" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Confirm Password</Label>
-              <Input type="password" value={resetConfirmPw} onChange={e => setResetConfirmPw(e.target.value)} placeholder="Confirm new password" />
-            </div>
-            {resetError && (
-              <p className="text-sm text-destructive">{resetError}</p>
-            )}
+            {resetError && <p className="text-sm text-destructive">{resetError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetOpen(false)}>Cancel</Button>
-            <Button onClick={handleReset} className="bg-accent hover:bg-accent/90 text-accent-foreground">Reset Password</Button>
+            <Button
+              onClick={handleReset}
+              disabled={resetLoading}
+              className="bg-accent hover:bg-accent/90 text-accent-foreground"
+            >
+              {resetLoading ? 'Sending…' : 'Send Reset Link'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

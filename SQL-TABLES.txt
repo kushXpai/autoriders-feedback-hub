@@ -1,0 +1,132 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.customer_quarter_profiles (
+  id integer NOT NULL DEFAULT nextval('customer_quarter_profiles_id_seq'::regclass),
+  customer_id integer NOT NULL,
+  quarter_id character varying NOT NULL,
+  expat_type USER-DEFINED NOT NULL DEFAULT 'existing'::expat_type,
+  CONSTRAINT customer_quarter_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT customer_quarter_profiles_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id),
+  CONSTRAINT customer_quarter_profiles_quarter_id_fkey FOREIGN KEY (quarter_id) REFERENCES public.quarters(id)
+);
+CREATE TABLE public.customers (
+  id integer NOT NULL DEFAULT nextval('customers_id_seq'::regclass),
+  name character varying NOT NULL,
+  email character varying NOT NULL UNIQUE,
+  phone character varying,
+  employee_id character varying NOT NULL UNIQUE,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at date NOT NULL DEFAULT CURRENT_DATE,
+  allocated_car character varying,
+  start_date date,
+  end_date date,
+  user_id uuid,
+  CONSTRAINT customers_pkey PRIMARY KEY (id),
+  CONSTRAINT customers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.dashboard_metrics (
+  id integer NOT NULL DEFAULT nextval('dashboard_metrics_id_seq'::regclass),
+  quarter_id character varying NOT NULL UNIQUE,
+  total_active_customers integer NOT NULL DEFAULT 0,
+  current_quarter_responded integer NOT NULL DEFAULT 0,
+  current_quarter_total integer NOT NULL DEFAULT 0,
+  overall_satisfaction numeric NOT NULL DEFAULT 0,
+  penalty_applies boolean NOT NULL DEFAULT false,
+  incentive_applies boolean NOT NULL DEFAULT false,
+  si_avg numeric NOT NULL DEFAULT 0,
+  si_pct numeric NOT NULL DEFAULT 0,
+  sd_avg numeric NOT NULL DEFAULT 0,
+  sd_pct numeric NOT NULL DEFAULT 0,
+  dq_avg numeric NOT NULL DEFAULT 0,
+  dq_pct numeric NOT NULL DEFAULT 0,
+  os_avg numeric NOT NULL DEFAULT 0,
+  os_pct numeric NOT NULL DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT dashboard_metrics_pkey PRIMARY KEY (id),
+  CONSTRAINT dashboard_metrics_quarter_id_fkey FOREIGN KEY (quarter_id) REFERENCES public.quarters(id)
+);
+CREATE TABLE public.feedback_assignments (
+  id integer NOT NULL DEFAULT nextval('feedback_assignments_id_seq'::regclass),
+  quarter_id character varying NOT NULL,
+  customer_id integer NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'pending'::feedback_status,
+  submitted_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT feedback_assignments_pkey PRIMARY KEY (id),
+  CONSTRAINT feedback_assignments_quarter_id_fkey FOREIGN KEY (quarter_id) REFERENCES public.quarters(id),
+  CONSTRAINT feedback_assignments_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id)
+);
+CREATE TABLE public.feedback_comments (
+  id integer NOT NULL DEFAULT nextval('feedback_comments_id_seq'::regclass),
+  assignment_id integer NOT NULL UNIQUE,
+  comment text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT feedback_comments_pkey PRIMARY KEY (id),
+  CONSTRAINT feedback_comments_assignment_id_fkey FOREIGN KEY (assignment_id) REFERENCES public.feedback_assignments(id)
+);
+CREATE TABLE public.feedback_responses (
+  id integer NOT NULL DEFAULT nextval('feedback_responses_id_seq'::regclass),
+  assignment_id integer NOT NULL,
+  question_id integer NOT NULL,
+  score integer NOT NULL CHECK (score >= 1 AND score <= 4),
+  CONSTRAINT feedback_responses_pkey PRIMARY KEY (id),
+  CONSTRAINT feedback_responses_assignment_id_fkey FOREIGN KEY (assignment_id) REFERENCES public.feedback_assignments(id),
+  CONSTRAINT feedback_responses_question_id_fkey FOREIGN KEY (question_id) REFERENCES public.questions(id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  name character varying NOT NULL,
+  email character varying NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.quarter_reports (
+  id integer NOT NULL DEFAULT nextval('quarter_reports_id_seq'::regclass),
+  quarter_id character varying NOT NULL UNIQUE,
+  total_respondents integer NOT NULL DEFAULT 0,
+  total_assigned integer NOT NULL DEFAULT 0,
+  new_expat_count integer NOT NULL DEFAULT 0,
+  si_avg numeric NOT NULL DEFAULT 0,
+  si_pct numeric NOT NULL DEFAULT 0,
+  sd_avg numeric NOT NULL DEFAULT 0,
+  sd_pct numeric NOT NULL DEFAULT 0,
+  dq_avg numeric NOT NULL DEFAULT 0,
+  dq_pct numeric NOT NULL DEFAULT 0,
+  os_avg numeric NOT NULL DEFAULT 0,
+  os_pct numeric NOT NULL DEFAULT 0,
+  overall_pct numeric NOT NULL DEFAULT 0,
+  outcome USER-DEFINED NOT NULL DEFAULT 'on_target'::quarter_outcome,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT quarter_reports_pkey PRIMARY KEY (id),
+  CONSTRAINT quarter_reports_quarter_id_fkey FOREIGN KEY (quarter_id) REFERENCES public.quarters(id)
+);
+CREATE TABLE public.quarters (
+  id character varying NOT NULL,
+  label character varying NOT NULL,
+  year integer NOT NULL,
+  quarter_number integer NOT NULL CHECK (quarter_number >= 1 AND quarter_number <= 4),
+  is_active boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT quarters_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.questions (
+  id integer NOT NULL DEFAULT nextval('questions_id_seq'::regclass),
+  question_number integer NOT NULL UNIQUE,
+  text text NOT NULL,
+  section USER-DEFINED NOT NULL,
+  is_new_expat_only boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT questions_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.user_roles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  role USER-DEFINED NOT NULL,
+  CONSTRAINT user_roles_pkey PRIMARY KEY (id),
+  CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
