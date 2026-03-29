@@ -1,63 +1,96 @@
+// src/pages/ProfilePage.tsx
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { User, Lock, Eye, EyeOff, KeyRound } from 'lucide-react';
+import { User, Lock, Eye, EyeOff, KeyRound, Mail } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function ProfilePage() {
-  const { user, changePassword, resetPassword } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
 
   // Change password state
-  const [currentPw, setCurrentPw] = useState('');
-  const [newPw, setNewPw] = useState('');
-  const [confirmPw, setConfirmPw] = useState('');
-  const [error, setError] = useState('');
+  const [currentPw, setCurrentPw]     = useState('');
+  const [newPw, setNewPw]             = useState('');
+  const [confirmPw, setConfirmPw]     = useState('');
+  const [error, setError]             = useState('');
+  const [loading, setLoading]         = useState(false);
   const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
+  const [showNew, setShowNew]         = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  // Forgot password dialog
-  const [forgotOpen, setForgotOpen] = useState(false);
-  const [forgotNewPw, setForgotNewPw] = useState('');
-  const [forgotConfirmPw, setForgotConfirmPw] = useState('');
-  const [forgotError, setForgotError] = useState('');
+  // Forgot password dialog state
+  const [forgotOpen, setForgotOpen]         = useState(false);
+  const [resetSent, setResetSent]           = useState(false);
+  const [resetLoading, setResetLoading]     = useState(false);
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  // ── Change password (requires knowing current password) ──────────────────
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!currentPw) { setError('Enter your current password'); return; }
-    if (newPw.length < 6) { setError('New password must be at least 6 characters'); return; }
+
+    if (!currentPw)          { setError('Enter your current password'); return; }
+    if (newPw.length < 6)    { setError('New password must be at least 6 characters'); return; }
     if (newPw !== confirmPw) { setError('New passwords do not match'); return; }
     if (currentPw === newPw) { setError('New password must be different from current password'); return; }
-    const result = changePassword(currentPw, newPw);
-    if (result.success) {
+    if (!user?.email)        { setError('No user email found'); return; }
+
+    setLoading(true);
+    try {
+      // Step 1: verify current password by re-signing in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPw,
+      });
+      if (signInError) {
+        setError('Current password is incorrect');
+        return;
+      }
+
+      // Step 2: update to new password
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPw });
+      if (updateError) throw updateError;
+
       toast({ title: 'Password updated', description: 'Your password has been changed successfully.' });
       setCurrentPw('');
       setNewPw('');
       setConfirmPw('');
-    } else {
-      setError(result.error || 'Failed to change password');
+    } catch (err: any) {
+      setError(err.message || 'Failed to update password');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleForgotReset = () => {
-    setForgotError('');
-    if (!user) return;
-    if (forgotNewPw.length < 6) { setForgotError('Password must be at least 6 characters'); return; }
-    if (forgotNewPw !== forgotConfirmPw) { setForgotError('Passwords do not match'); return; }
-    const result = resetPassword(user.email, forgotNewPw);
-    if (result.success) {
-      toast({ title: 'Password reset', description: 'Your password has been reset successfully.' });
-      setForgotOpen(false);
-      setForgotNewPw('');
-      setForgotConfirmPw('');
-    } else {
-      setForgotError(result.error || 'Reset failed');
+  // ── Forgot password: send reset email via Supabase ───────────────────────
+  const handleForgotPassword = async () => {
+    if (!user?.email) return;
+    setResetLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      setResetSent(true);
+    } catch (err: any) {
+      toast({
+        title: 'Failed to send reset email',
+        description: err.message || 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setResetLoading(false);
     }
+  };
+
+  const handleForgotClose = () => {
+    setForgotOpen(false);
+    setResetSent(false);
   };
 
   return (
@@ -67,7 +100,7 @@ export default function ProfilePage() {
         <p className="text-sm text-muted-foreground mt-0.5">Manage your account settings</p>
       </div>
 
-      {/* User Info Card */}
+      {/* ── User Info Card ─────────────────────────────────────────────────── */}
       <div className="bg-card rounded-xl border border-border p-6 animate-fade-in-up" style={{ animationFillMode: 'both' }}>
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
@@ -86,7 +119,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Change Password Card */}
+      {/* ── Change Password Card ───────────────────────────────────────────── */}
       <div
         className="bg-card rounded-xl border border-border p-6 animate-fade-in-up"
         style={{ animationDelay: '80ms', animationFillMode: 'both' }}
@@ -106,8 +139,10 @@ export default function ProfilePage() {
                 onChange={e => setCurrentPw(e.target.value)}
                 placeholder="Enter current password"
                 className="pr-10"
+                disabled={loading}
               />
-              <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+              <button type="button" onClick={() => setShowCurrent(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                 {showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
@@ -122,8 +157,10 @@ export default function ProfilePage() {
                 onChange={e => setNewPw(e.target.value)}
                 placeholder="Min 6 characters"
                 className="pr-10"
+                disabled={loading}
               />
-              <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+              <button type="button" onClick={() => setShowNew(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                 {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
@@ -131,12 +168,20 @@ export default function ProfilePage() {
 
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">Confirm New Password</Label>
-            <Input
-              type="password"
-              value={confirmPw}
-              onChange={e => setConfirmPw(e.target.value)}
-              placeholder="Confirm new password"
-            />
+            <div className="relative">
+              <Input
+                type={showConfirm ? 'text' : 'password'}
+                value={confirmPw}
+                onChange={e => setConfirmPw(e.target.value)}
+                placeholder="Confirm new password"
+                className="pr-10"
+                disabled={loading}
+              />
+              <button type="button" onClick={() => setShowConfirm(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           {error && (
@@ -148,40 +193,72 @@ export default function ProfilePage() {
           <div className="flex items-center justify-between pt-1">
             <button
               type="button"
-              onClick={() => { setForgotOpen(true); setForgotError(''); setForgotNewPw(''); setForgotConfirmPw(''); }}
+              onClick={() => { setForgotOpen(true); setResetSent(false); }}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
             >
               <KeyRound className="w-3 h-3" />
               Forgot current password?
             </button>
-            <Button type="submit" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              Update Password
+            <Button type="submit" size="sm" disabled={loading}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground">
+              {loading ? 'Updating…' : 'Update Password'}
             </Button>
           </div>
         </form>
       </div>
 
-      {/* Forgot Password Dialog */}
-      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+      {/* Hint for customers */}
+      {user?.role === 'customer' && (
+        <p className="text-xs text-muted-foreground px-1">
+          Your default password is your registered phone number. Update it here after your first login.
+        </p>
+      )}
+
+      {/* ── Forgot Password Dialog ─────────────────────────────────────────── */}
+      <Dialog open={forgotOpen} onOpenChange={handleForgotClose}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Reset Password</DialogTitle>
-            <DialogDescription>Set a new password for {user?.email}</DialogDescription>
+            <DialogDescription>
+              {resetSent
+                ? 'Check your email for the reset link.'
+                : `We'll send a password reset link to ${user?.email}`}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>New Password</Label>
-              <Input type="password" value={forgotNewPw} onChange={e => setForgotNewPw(e.target.value)} placeholder="Min 6 characters" />
+
+          {resetSent ? (
+            // ── Success state ──────────────────────────────────────────────
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                <Mail className="w-5 h-5 text-emerald-600" />
+              </div>
+              <p className="text-sm text-center text-muted-foreground">
+                A reset link has been sent to <span className="font-medium text-foreground">{user?.email}</span>.
+                Open it to set a new password, then log back in.
+              </p>
             </div>
-            <div className="space-y-1.5">
-              <Label>Confirm Password</Label>
-              <Input type="password" value={forgotConfirmPw} onChange={e => setForgotConfirmPw(e.target.value)} placeholder="Confirm new password" />
+          ) : (
+            // ── Confirmation state ─────────────────────────────────────────
+            <div className="py-2">
+              <p className="text-sm text-muted-foreground">
+                You'll be sent an email with a secure link to set a new password. This won't affect your current session.
+              </p>
             </div>
-            {forgotError && <p className="text-sm text-destructive">{forgotError}</p>}
-          </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setForgotOpen(false)}>Cancel</Button>
-            <Button onClick={handleForgotReset} className="bg-accent hover:bg-accent/90 text-accent-foreground">Reset Password</Button>
+            <Button variant="outline" onClick={handleForgotClose}>
+              {resetSent ? 'Close' : 'Cancel'}
+            </Button>
+            {!resetSent && (
+              <Button
+                onClick={handleForgotPassword}
+                disabled={resetLoading}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                {resetLoading ? 'Sending…' : 'Send Reset Email'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
