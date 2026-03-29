@@ -15,9 +15,9 @@ const navItems = [
 ];
 
 interface AdminSidebarProps {
-  open: boolean;                              // mobile drawer open/closed
-  onClose: () => void;                        // close mobile drawer
-  collapsed: boolean;                         // desktop collapsed state
+  open: boolean;
+  onClose: () => void;
+  collapsed: boolean;
   setCollapsed: Dispatch<SetStateAction<boolean>>;
 }
 
