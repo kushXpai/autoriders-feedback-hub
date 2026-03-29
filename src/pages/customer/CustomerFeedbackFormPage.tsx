@@ -1,13 +1,15 @@
-import { useState, useMemo } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+// src/pages/customer/CustomerFeedbackFormPage.tsx
+import { useState, useEffect, useMemo } from 'react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  DEMO_CUSTOMER_ID, feedbackAssignments, customerQuarterProfiles,
-  questions, sectionLabels, getFeedbackResponses, getFeedbackComment,
-  getScoreLabel, getScoreColor,
-} from '@/data/mockData';
+import { supabase } from '@/supabase/client';
 import { cn } from '@/lib/utils';
+import type {
+  FeedbackAssignment, Question, FeedbackResponse, QuestionSection,
+} from '@/types/database.types';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const scoreOptions = [
   { value: 1, label: 'Needs Improvement' },
@@ -16,25 +18,215 @@ const scoreOptions = [
   { value: 4, label: 'Excellence' },
 ] as const;
 
-const sectionKeys = ['service_initiation', 'service_delivery', 'driver_quality', 'overall'] as const;
+const sectionKeys: QuestionSection[] = [
+  'service_initiation',
+  'service_delivery',
+  'driver_quality',
+  'overall',
+];
+
+const sectionLabels: Record<QuestionSection, string> = {
+  service_initiation: 'Service Initiation',
+  service_delivery:   'Service Delivery',
+  driver_quality:     'Driver Quality',
+  overall:            'Overall Experience',
+};
+
+function getScoreColor(score: number) {
+  if (score === 4) return 'bg-emerald-500';
+  if (score === 3) return 'bg-blue-500';
+  if (score === 2) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
+function getScoreLabel(score: number) {
+  return scoreOptions.find(o => o.value === score)?.label ?? '';
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface PageData {
+  assignment: FeedbackAssignment;
+  isNew: boolean;         // expat_type === 'new' from customers table
+  quarterLabel: string;
+  questions: Question[];
+  existingResponses: FeedbackResponse[];
+  existingComment: string | null;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function CustomerFeedbackFormPage() {
-  const assignment = feedbackAssignments.find(a => a.customerId === DEMO_CUSTOMER_ID && a.quarterId === 'q1-2026');
-  const profile = customerQuarterProfiles.find(p => p.customerId === DEMO_CUSTOMER_ID && p.quarterId === 'q1-2026');
-  const isNew = profile?.expatType === 'new';
+  const [loading, setLoading]     = useState(true);
+  const [pageData, setPageData]   = useState<PageData | null>(null);
+  const [noForm, setNoForm]       = useState(false);
 
-  const applicableQuestions = useMemo(
-    () => questions.filter(q => isNew || !q.isNewExpatOnly),
-    [isNew]
-  );
-
-  const [answers, setAnswers] = useState<Record<number, 1 | 2 | 3 | 4>>({});
-  const [comment, setComment] = useState('');
+  // form state
+  const [answers, setAnswers]     = useState<Record<number, 1 | 2 | 3 | 4>>({});
+  const [comment, setComment]     = useState('');
   const [attempted, setAttempted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
 
-  if (!assignment) {
+  // ─── Fetch everything on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+
+      // 1. Get logged-in user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setNoForm(true); setLoading(false); return; }
+
+      // 2. Get customer record linked to this user
+      const { data: customerRow } = await (supabase as any)
+        .from('customers')
+        .select('id, expat_type')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!customerRow) { setNoForm(true); setLoading(false); return; }
+
+      // 3. Get the active quarter
+      const { data: activeQuarter } = await (supabase as any)
+        .from('quarters')
+        .select('id, label')
+        .eq('is_active', true)
+        .single();
+
+      if (!activeQuarter) { setNoForm(true); setLoading(false); return; }
+
+      // 4. Find feedback assignment for this customer + active quarter
+      const { data: assignment } = await (supabase as any)
+        .from('feedback_assignments')
+        .select('*')
+        .eq('customer_id', customerRow.id)
+        .eq('quarter_id', activeQuarter.id)
+        .single();
+
+      if (!assignment) { setNoForm(true); setLoading(false); return; }
+
+      // 5. Determine if new expat — drives which questions to show
+      const isNew = (customerRow.expat_type as string) === 'new';
+
+      // 6. Fetch active questions from DB
+      const { data: allQuestions } = await (supabase as any)
+        .from('questions')
+        .select('*')
+        .eq('is_active', true)
+        .order('question_number', { ascending: true });
+
+      const questions = (allQuestions ?? []) as Question[];
+
+      // 7. If already submitted, fetch existing responses + comment
+      let existingResponses: FeedbackResponse[] = [];
+      let existingComment: string | null = null;
+
+      if ((assignment.status as string) === 'submitted') {
+        const { data: responses } = await (supabase as any)
+          .from('feedback_responses')
+          .select('*')
+          .eq('assignment_id', assignment.id);
+
+        existingResponses = (responses ?? []) as FeedbackResponse[];
+
+        const { data: commentRow } = await (supabase as any)
+          .from('feedback_comments')
+          .select('comment')
+          .eq('assignment_id', assignment.id)
+          .single();
+
+        existingComment = (commentRow as any)?.comment ?? null;
+      }
+
+      setPageData({
+        assignment: assignment as FeedbackAssignment,
+        isNew,
+        quarterLabel: activeQuarter.label as string,
+        questions,
+        existingResponses,
+        existingComment,
+      });
+
+      setLoading(false);
+    })();
+  }, []);
+
+  // ─── Derived ────────────────────────────────────────────────────────────────
+
+  const applicableQuestions = useMemo(() => {
+    if (!pageData) return [];
+    return pageData.questions.filter(q =>
+      pageData.isNew || !q.is_new_expat_only
+    );
+  }, [pageData]);
+
+  // ─── Submit handler ─────────────────────────────────────────────────────────
+
+  const handleSubmit = async () => {
+    if (!pageData) return;
+
+    const totalQuestions = applicableQuestions.length;
+    const answeredCount  = Object.keys(answers).length;
+
+    if (answeredCount < totalQuestions) {
+      setAttempted(true);
+      return;
+    }
+
+    setSubmitting(true);
+
+    const assignmentId = pageData.assignment.id;
+
+    // Insert all responses
+    const responseRows = applicableQuestions.map(q => ({
+      assignment_id: assignmentId,
+      question_id:   q.id,
+      score:         answers[q.id],
+    }));
+
+    const { error: respError } = await (supabase as any)
+      .from('feedback_responses')
+      .insert(responseRows);
+
+    if (respError) {
+      console.error('Error saving responses:', respError.message);
+      setSubmitting(false);
+      return;
+    }
+
+    // Insert comment if provided
+    if (comment.trim()) {
+      await (supabase as any).from('feedback_comments').insert({
+        assignment_id: assignmentId,
+        comment:       comment.trim(),
+      });
+    }
+
+    // Update assignment status to submitted
+    const now = new Date().toISOString();
+    await (supabase.from('feedback_assignments') as any)
+      .update({ status: 'submitted', submitted_at: now })
+      .eq('id', assignmentId);
+
+    setSubmittedAt(new Date());
+    setSubmitting(false);
+    setSubmitted(true);
+  };
+
+  // ─── Loading ────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24 text-muted-foreground">
+        <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading your feedback form…
+      </div>
+    );
+  }
+
+  // ─── No form assigned ───────────────────────────────────────────────────────
+
+  if (noForm || !pageData) {
     return (
       <div className="animate-fade-in-up max-w-lg mx-auto md:max-w-2xl">
         <div className="bg-card rounded-xl border border-border p-8 text-center shadow-sm">
@@ -45,55 +237,72 @@ export default function CustomerFeedbackFormPage() {
     );
   }
 
-  // Already submitted — read-only view
-  if (assignment.status === 'submitted' || submitted) {
-    const responses = submitted ? applicableQuestions.map(q => ({ assignmentId: assignment.id, questionId: q.id, score: answers[q.id] ?? 3 as 1|2|3|4 })) : getFeedbackResponses(assignment.id);
-    const existingComment = submitted ? comment : getFeedbackComment(assignment.id);
-    const displayDate = submitted && submittedAt ? submittedAt : assignment.submittedAt ? new Date(assignment.submittedAt) : new Date();
+  const { assignment, isNew, quarterLabel, existingResponses, existingComment } = pageData;
 
-    if (submitted) {
-      return (
-        <div className="animate-fade-in-up max-w-lg mx-auto md:max-w-2xl">
-          <div className="bg-card rounded-xl border border-border p-8 text-center shadow-sm">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-8 h-8 text-emerald-500" />
-            </div>
-            <h2 className="text-xl font-semibold text-foreground">Thank you for your feedback</h2>
-            <p className="text-sm text-muted-foreground mt-2">
-              Your Q1 2026 form has been submitted on {displayDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at {displayDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}.
-            </p>
+  // ─── Just submitted — thank you screen ─────────────────────────────────────
+
+  if (submitted && submittedAt) {
+    return (
+      <div className="animate-fade-in-up max-w-lg mx-auto md:max-w-2xl">
+        <div className="bg-card rounded-xl border border-border p-8 text-center shadow-sm">
+          <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="w-8 h-8 text-emerald-500" />
           </div>
+          <h2 className="text-xl font-semibold text-foreground">Thank you for your feedback</h2>
+          <p className="text-sm text-muted-foreground mt-2">
+            Your {quarterLabel} form was submitted on{' '}
+            {submittedAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            {' '}at{' '}
+            {submittedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}.
+          </p>
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
+  // ─── Already submitted (from DB) — read-only view ──────────────────────────
+
+  if (assignment.status === 'submitted') {
     return (
       <div className="animate-fade-in-up space-y-5 max-w-lg mx-auto md:max-w-2xl">
         <div className="bg-emerald-500/10 rounded-xl border border-emerald-500/20 p-4">
-          <p className="text-sm font-medium text-foreground">You have already submitted your Q1 2026 feedback</p>
+          <p className="text-sm font-medium text-foreground">
+            You have already submitted your {quarterLabel} feedback
+          </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Submitted on {new Date(displayDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            Submitted on{' '}
+            {new Date(assignment.submitted_at!).toLocaleDateString('en-US', {
+              month: 'long', day: 'numeric', year: 'numeric',
+            })}
           </p>
         </div>
 
         {sectionKeys.map(sectionKey => {
           if (sectionKey === 'service_initiation' && !isNew) return null;
-          const sectionQuestions = questions.filter(q => q.section === sectionKey);
+          const sectionQuestions = applicableQuestions.filter(q => q.section === sectionKey);
+          if (sectionQuestions.length === 0) return null;
           return (
             <div key={sectionKey}>
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{sectionLabels[sectionKey]}</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+                {sectionLabels[sectionKey]}
+              </h3>
               <div className="space-y-3">
                 {sectionQuestions.map(q => {
-                  const resp = responses.find(r => r.questionId === q.id);
+                  const resp = existingResponses.find(r => r.question_id === q.id);
                   if (!resp) return null;
                   return (
                     <div key={q.id} className="bg-card rounded-xl border border-border p-4 shadow-sm">
                       <div className="flex items-start gap-3">
-                        <span className="text-xs text-muted-foreground font-mono mt-0.5 w-6 shrink-0">Q{q.number}</span>
+                        <span className="text-xs text-muted-foreground font-mono mt-0.5 w-6 shrink-0">
+                          Q{q.question_number}
+                        </span>
                         <div className="flex-1">
                           <p className="text-sm text-foreground leading-snug">{q.text}</p>
                           <div className="flex items-center gap-2 mt-2">
-                            <span className={cn('w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white', getScoreColor(resp.score))}>
+                            <span className={cn(
+                              'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white',
+                              getScoreColor(resp.score)
+                            )}>
                               {resp.score}
                             </span>
                             <span className="text-xs text-muted-foreground">{getScoreLabel(resp.score)}</span>
@@ -110,7 +319,9 @@ export default function CustomerFeedbackFormPage() {
 
         {existingComment && (
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-2">Your Comment</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Your Comment
+            </h3>
             <p className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">{existingComment}</p>
           </div>
         )}
@@ -118,46 +329,43 @@ export default function CustomerFeedbackFormPage() {
     );
   }
 
-  // Pending — fill form
-  const answeredCount = Object.keys(answers).length;
-  const totalQuestions = applicableQuestions.length;
-  const progress = (answeredCount / totalQuestions) * 100;
-  const allAnswered = answeredCount === totalQuestions;
+  // ─── Pending — fill the form ────────────────────────────────────────────────
 
-  const handleSubmit = () => {
-    if (!allAnswered) {
-      setAttempted(true);
-      return;
-    }
-    setSubmitted(true);
-    setSubmittedAt(new Date());
-  };
+  const answeredCount  = Object.keys(answers).length;
+  const totalQuestions = applicableQuestions.length;
+  const progress       = totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0;
+  const allAnswered    = answeredCount === totalQuestions;
 
   return (
     <div className="animate-fade-in-up space-y-4 max-w-lg mx-auto md:max-w-2xl">
+
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg sm:text-xl font-semibold text-foreground">Q1 2026 Feedback Form</h1>
+        <h1 className="text-lg sm:text-xl font-semibold text-foreground">{quarterLabel} Feedback Form</h1>
         <span className="text-[10px] sm:text-xs font-semibold px-2 py-1 rounded-full bg-accent/15 text-accent whitespace-nowrap">
-          {profile?.expatType === 'new' ? 'New Expat' : 'Existing Expat'}
+          {isNew ? 'New Expat' : 'Existing Expat'}
         </span>
       </div>
 
-      {/* Progress */}
+      {/* Progress bar */}
       <div>
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
           <span>{answeredCount} of {totalQuestions} answered</span>
           <span>{Math.round(progress)}%</span>
         </div>
         <div className="w-full bg-muted rounded-full h-2">
-          <div className="h-2 rounded-full bg-accent transition-all duration-300" style={{ width: `${progress}%` }} />
+          <div
+            className="h-2 rounded-full bg-accent transition-all duration-300"
+            style={{ width: `${progress}%` }}
+          />
         </div>
       </div>
 
       {/* Questions by section */}
       {sectionKeys.map(sectionKey => {
         if (sectionKey === 'service_initiation' && !isNew) return null;
-        const sectionQuestions = questions.filter(q => q.section === sectionKey);
+        const sectionQuestions = applicableQuestions.filter(q => q.section === sectionKey);
+        if (sectionQuestions.length === 0) return null;
         return (
           <div key={sectionKey}>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3 pb-2 border-b border-border">
@@ -175,14 +383,16 @@ export default function CustomerFeedbackFormPage() {
                     )}
                   >
                     <div className="flex items-start gap-2 mb-3">
-                      <span className="text-xs text-muted-foreground font-mono mt-0.5 shrink-0">Q{q.number}</span>
+                      <span className="text-xs text-muted-foreground font-mono mt-0.5 shrink-0">
+                        Q{q.question_number}
+                      </span>
                       <p className="text-sm text-foreground leading-snug">{q.text}</p>
                     </div>
                     <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
                       {scoreOptions.map(opt => (
                         <button
                           key={opt.value}
-                          onClick={() => setAnswers(prev => ({ ...prev, [q.id]: opt.value as 1|2|3|4 }))}
+                          onClick={() => setAnswers(prev => ({ ...prev, [q.id]: opt.value as 1 | 2 | 3 | 4 }))}
                           className={cn(
                             'px-3 py-2.5 sm:py-2 rounded-full text-xs font-medium transition-all active:scale-[0.96] border text-center',
                             answers[q.id] === opt.value
@@ -223,7 +433,7 @@ export default function CustomerFeedbackFormPage() {
       <div className="pb-8">
         <Button
           onClick={handleSubmit}
-          disabled={false}
+          disabled={submitting}
           className={cn(
             'w-full py-3 text-sm font-semibold transition-all',
             allAnswered
@@ -232,7 +442,12 @@ export default function CustomerFeedbackFormPage() {
           )}
           size="lg"
         >
-          {allAnswered ? 'Submit Feedback' : `Answer all questions to submit (${totalQuestions - answeredCount} remaining)`}
+          {submitting ? (
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Submitting…</>
+          ) : allAnswered
+            ? 'Submit Feedback'
+            : `Answer all questions to submit (${totalQuestions - answeredCount} remaining)`
+          }
         </Button>
       </div>
     </div>
