@@ -73,7 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ── Step 2: Insert into profiles ──────────────────────────────────────────
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
-      .insert({ id: userId, name, email });
+      .upsert({ id: userId, name, email });
 
     if (profileError) {
       await supabaseAdmin.auth.admin.deleteUser(userId);
