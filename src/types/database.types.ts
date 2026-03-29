@@ -62,6 +62,7 @@ export interface Customer {
   start_date: string | null; // date
   end_date: string | null; // date
   user_id: string | null; // uuid — references auth.users(id)
+  expat_type: ExpatType; // new vs. existing expat classification
 }
 
 /** public.customer_quarter_profiles */
@@ -69,7 +70,6 @@ export interface CustomerQuarterProfile {
   id: number; // serial
   customer_id: number; // references customers(id)
   quarter_id: string; // references quarters(id)
-  expat_type: ExpatType;
 }
 
 /** public.questions */

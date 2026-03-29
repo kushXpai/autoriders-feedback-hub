@@ -28,7 +28,7 @@ interface Customer {
   start_date: string | null;
   end_date: string | null;
   user_id: string | null;
-  expat_type?: 'new' | 'existing';
+  expat_type: 'new' | 'existing';
 }
 
 interface FormData {
@@ -88,25 +88,7 @@ export default function CustomersPage() {
       return;
     }
 
-    const custList = (custRaw ?? []) as Customer[];
-
-    // Get expat profiles for active quarter
-    let profiles: { customer_id: number; expat_type: string }[] = [];
-    if (quarterId) {
-      const { data: profilesRaw } = await supabase
-        .from('customer_quarter_profiles')
-        .select('customer_id, expat_type')
-        .eq('quarter_id', quarterId);
-      profiles = (profilesRaw ?? []) as any[];
-    }
-
-    // Merge expat_type onto each customer
-    const merged = custList.map(c => ({
-      ...c,
-      expat_type: (profiles.find(p => p.customer_id === c.id)?.expat_type ?? undefined) as 'new' | 'existing' | undefined,
-    }));
-
-    setCustomers(merged);
+    setCustomers((custRaw ?? []) as Customer[]);
     setLoading(false);
   };
 
@@ -182,6 +164,7 @@ export default function CustomersPage() {
       allocated_car: formData.allocated_car || null,
       start_date: formData.start_date || null,
       end_date: formData.end_date || null,
+      expat_type: formData.expat_type,
     };
 
     if (editingCustomer) {
@@ -190,14 +173,6 @@ export default function CustomersPage() {
         .eq('id', editingCustomer.id);
       if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setSaving(false); return; }
 
-      // Upsert expat profile
-      if (activeQuarterId) {
-        await (supabase.from('customer_quarter_profiles') as any).upsert({
-          customer_id: editingCustomer.id,
-          quarter_id: activeQuarterId,
-          expat_type: formData.expat_type,
-        }, { onConflict: 'customer_id,quarter_id' });
-      }
       toast({ title: 'Updated', description: `${formData.name} updated.` });
 
     } else {
@@ -207,20 +182,12 @@ export default function CustomersPage() {
       const lastNum = parseInt(((lastRaw as any)?.employee_id ?? 'EMP-0000').replace('EMP-', ''), 10) || 0;
       const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
 
-      const { data: newRaw, error } = await (supabase.from('customers') as any)
+      const { error } = await (supabase.from('customers') as any)
         .insert({ ...payload, employee_id: newEmployeeId })
         .select()
         .single();
       if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setSaving(false); return; }
 
-      // Create expat profile
-      if (activeQuarterId && newRaw) {
-        await (supabase.from('customer_quarter_profiles') as any).insert({
-          customer_id: (newRaw as any).id,
-          quarter_id: activeQuarterId,
-          expat_type: formData.expat_type,
-        });
-      }
       toast({ title: 'Added', description: `${formData.name} added.` });
     }
 
@@ -345,7 +312,7 @@ export default function CustomersPage() {
                   <TableCell>
                     <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full capitalize',
                       c.expat_type === 'new' ? 'bg-accent/15 text-accent' : 'bg-muted text-muted-foreground')}>
-                      {c.expat_type ?? '—'}
+                      {c.expat_type}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -422,8 +389,8 @@ export default function CustomersPage() {
               <Input value={formData.phone} onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))} placeholder="+966 55 000 0000" />
             </div>
             <div className="space-y-1.5">
-              <Label>Expat Type {!activeQuarterId && <span className="text-muted-foreground text-xs">(no active quarter)</span>}</Label>
-              <Select value={formData.expat_type} onValueChange={(v: 'new' | 'existing') => setFormData(p => ({ ...p, expat_type: v }))} disabled={!activeQuarterId}>
+              <Label>Expat Type</Label>
+              <Select value={formData.expat_type} onValueChange={(v: 'new' | 'existing') => setFormData(p => ({ ...p, expat_type: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="new">New</SelectItem>
