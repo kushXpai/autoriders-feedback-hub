@@ -125,13 +125,38 @@ export default function CustomersPage() {
   // ─── Delete ───────────────────────────────────────────────────────────────────
   const deleteCustomer = async () => {
     if (!deleteConfirm) return;
-    const { error } = await supabase.from('customers').delete().eq('id', deleteConfirm.id);
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to delete.', variant: 'destructive' });
+
+    // If customer has an auth user, delete via API (cleans up auth.users + profiles + user_roles)
+    if (deleteConfirm.user_id) {
+      const { data: { session } } = await supabase.auth.getSession();
+      const apiRes = await fetch('/api/delete-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ userId: deleteConfirm.user_id }),
+      });
+      const result = await apiRes.json();
+      if (!apiRes.ok) {
+        toast({ title: 'Error', description: result.error || 'Failed to delete.', variant: 'destructive' });
+        setDeleteConfirm(null);
+        return;
+      }
+      // Also delete the customers row itself
+      await supabase.from('customers').delete().eq('id', deleteConfirm.id);
     } else {
-      setCustomers(prev => prev.filter(c => c.id !== deleteConfirm.id));
-      toast({ title: 'Deleted', description: `${deleteConfirm.name} removed.` });
+      // No auth user, just delete the customers row
+      const { error } = await supabase.from('customers').delete().eq('id', deleteConfirm.id);
+      if (error) {
+        toast({ title: 'Error', description: 'Failed to delete.', variant: 'destructive' });
+        setDeleteConfirm(null);
+        return;
+      }
     }
+
+    setCustomers(prev => prev.filter(c => c.id !== deleteConfirm.id));
+    toast({ title: 'Deleted', description: `${deleteConfirm.name} removed.` });
     setDeleteConfirm(null);
   };
 
@@ -182,13 +207,24 @@ export default function CustomersPage() {
       const lastNum = parseInt(((lastRaw as any)?.employee_id ?? 'EMP-0000').replace('EMP-', ''), 10) || 0;
       const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
 
-      const { error } = await (supabase.from('customers') as any)
-        .insert({ ...payload, employee_id: newEmployeeId })
-        .select()
-        .single();
-      if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setSaving(false); return; }
+      // Call API to create auth.users + profiles + user_roles + customers
+      const { data: { session } } = await supabase.auth.getSession();
+      const apiRes = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ ...payload, employee_id: newEmployeeId }),
+      });
+      const result = await apiRes.json();
+      if (!apiRes.ok) {
+        toast({ title: 'Error', description: result.error || 'Failed to create customer.', variant: 'destructive' });
+        setSaving(false);
+        return;
+      }
 
-      toast({ title: 'Added', description: `${formData.name} added.` });
+      toast({ title: 'Added', description: `${formData.name} added. They can log in with their phone number as password.` });
     }
 
     setDrawerOpen(false);
