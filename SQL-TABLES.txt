@@ -5,7 +5,6 @@ CREATE TABLE public.customer_quarter_profiles (
   id integer NOT NULL DEFAULT nextval('customer_quarter_profiles_id_seq'::regclass),
   customer_id integer NOT NULL,
   quarter_id character varying NOT NULL,
-  expat_type USER-DEFINED NOT NULL DEFAULT 'existing'::expat_type,
   CONSTRAINT customer_quarter_profiles_pkey PRIMARY KEY (id),
   CONSTRAINT customer_quarter_profiles_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id),
   CONSTRAINT customer_quarter_profiles_quarter_id_fkey FOREIGN KEY (quarter_id) REFERENCES public.quarters(id)
@@ -22,6 +21,7 @@ CREATE TABLE public.customers (
   start_date date,
   end_date date,
   user_id uuid,
+  expat_type USER-DEFINED NOT NULL DEFAULT 'existing'::expat_type,
   CONSTRAINT customers_pkey PRIMARY KEY (id),
   CONSTRAINT customers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );

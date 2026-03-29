@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Car, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login, resetPassword } = useAuth();
+  const { login, resetPassword, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -29,6 +29,12 @@ export default function LoginPage() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState('');
 
+  /* ---------------- AUTO REDIRECT IF ALREADY LOGGED IN ---------------- */
+  if (!authLoading && isAuthenticated) {
+    navigate('/', { replace: true });
+  }
+
+  /* ---------------- LOGIN ---------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -38,18 +44,21 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result.success) {
-      // Role-based redirect is handled by layouts, but we still need
-      // to push the user somewhere — useAuth's user state drives the layouts.
-      // We navigate to /admin or /customer based on the resolved user role.
-      navigate(email.toLowerCase().includes('admin') ? '/admin' : '/customer', { replace: true });
+      // ✅ Always go to root → AuthRedirect decides role
+      navigate('/', { replace: true });
     } else {
       setError(result.error || 'Login failed');
     }
   };
 
+  /* ---------------- RESET PASSWORD ---------------- */
   const handleReset = async () => {
     setResetError('');
-    if (!resetEmail) { setResetError('Enter your email'); return; }
+
+    if (!resetEmail) {
+      setResetError('Enter your email');
+      return;
+    }
 
     setResetLoading(true);
     const result = await resetPassword(resetEmail, '');
@@ -67,6 +76,7 @@ export default function LoginPage() {
     }
   };
 
+  /* ---------------- UI ---------------- */
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md animate-fade-in-up">
@@ -77,13 +87,17 @@ export default function LoginPage() {
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">
             ExxonMobil Car Rental
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">Feedback Management System</p>
+          <p className="text-muted-foreground text-sm mt-1">
+            Feedback Management System
+          </p>
         </div>
 
         <div className="bg-card rounded-xl border border-border p-8 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-medium">Email</Label>
+              <Label htmlFor="email" className="text-sm font-medium">
+                Email
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -96,7 +110,9 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+              <Label htmlFor="password" className="text-sm font-medium">
+                Password
+              </Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -112,7 +128,11 @@ export default function LoginPage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -126,7 +146,7 @@ export default function LoginPage() {
             <Button
               type="submit"
               className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
-              disabled={loading}
+              disabled={loading || !email || !password}
             >
               {loading ? 'Signing in…' : 'Sign In'}
             </Button>
@@ -145,7 +165,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Reset Password Dialog */}
+      {/* ---------------- RESET PASSWORD DIALOG ---------------- */}
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -154,6 +174,7 @@ export default function LoginPage() {
               Enter your email and we'll send you a reset link.
             </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Email</Label>
@@ -164,10 +185,20 @@ export default function LoginPage() {
                 placeholder="your@email.com"
               />
             </div>
-            {resetError && <p className="text-sm text-destructive">{resetError}</p>}
+
+            {resetError && (
+              <p className="text-sm text-destructive">{resetError}</p>
+            )}
           </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setResetOpen(false)}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() => setResetOpen(false)}
+            >
+              Cancel
+            </Button>
+
             <Button
               onClick={handleReset}
               disabled={resetLoading}

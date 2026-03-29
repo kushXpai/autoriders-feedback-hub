@@ -1,16 +1,12 @@
-import { Outlet, Navigate } from 'react-router-dom';
+// src/layouts/CustomerLayout.tsx
+import { Outlet } from 'react-router-dom';
 import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
 import CustomerSidebar from '@/components/CustomerSidebar';
 import CustomerTopBar from '@/components/CustomerTopBar';
 
 export default function CustomerLayout() {
-  const { user, isAuthenticated } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-
-  if (!isAuthenticated) return <Navigate to="/" replace />;
-  if (user?.role !== 'customer') return <Navigate to="/" replace />;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

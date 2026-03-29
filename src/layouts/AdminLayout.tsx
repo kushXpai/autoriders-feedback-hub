@@ -1,20 +1,24 @@
-import { Outlet, Navigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+// src/layouts/AdminLayout.tsx
+import { useState } from 'react';
+import { Outlet } from 'react-router-dom';
 import AdminSidebar from '@/components/AdminSidebar';
 import AdminTopBar from '@/components/AdminTopBar';
 
 export default function AdminLayout() {
-  const { user, isAuthenticated } = useAuth();
-
-  if (!isAuthenticated) return <Navigate to="/" replace />;
-  if (user?.role !== 'admin') return <Navigate to="/" replace />;
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <AdminSidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <AdminTopBar />
-        <main className="flex-1 overflow-auto p-6">
+      <AdminSidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <AdminTopBar onMenuClick={() => setSidebarOpen(true)} />
+        <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6">
           <Outlet />
         </main>
       </div>
