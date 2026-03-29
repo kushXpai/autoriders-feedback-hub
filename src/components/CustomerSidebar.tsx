@@ -31,12 +31,16 @@ export default function CustomerSidebar({ open, onClose, collapsed, setCollapsed
       <div className="h-14 flex items-center px-4 border-b border-sidebar-border justify-between">
         {!collapsed && (
           <div className="flex items-center gap-2.5 animate-fade-in">
-            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-accent-foreground">EM</span>
+            <div className="w-12 h-8 rounded-lg flex items-center justify-center flex-shrink-0">
+              <img
+                src="/autoriders.webp"
+                alt="Autoriders Logo"
+                className="w-28 object-contain"
+              />
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-semibold text-sidebar-accent-foreground truncate">Car Rental</p>
-              <p className="text-[10px] text-sidebar-foreground/60 truncate">My Portal</p>
+              <p className="text-[10px] text-sidebar-foreground/60 truncate">Feedback System</p>
             </div>
           </div>
         )}
