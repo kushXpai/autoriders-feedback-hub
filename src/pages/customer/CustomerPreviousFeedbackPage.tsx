@@ -268,27 +268,38 @@ export default function CustomerPreviousFeedbackPage() {
           <p className="text-muted-foreground">No previous submissions found.</p>
         </div>
       ) : (
-        <div className="space-y-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {submitted.map(a => (
-            <div
+            <button
               key={a.id}
-              className="bg-card rounded-xl border border-border p-4 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow"
+              onClick={() => setViewingId(a.id)}
+              className="bg-card rounded-xl border border-border p-5 shadow-sm hover:shadow-md hover:border-accent/40 transition-all text-left active:scale-[0.98] flex flex-col justify-between aspect-square"
             >
-              <div>
-                <p className="text-sm font-medium text-foreground">{a.quarter_label}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  <span className="capitalize">{a.is_new ? 'New' : 'Existing'} expat</span>
-                  {' · '}
-                  Submitted{' '}
+              {/* Top — quarter label + expat badge */}
+              <div className="space-y-2">
+                <p className="text-base font-semibold text-foreground leading-tight">
+                  {a.quarter_label}
+                </p>
+                <span className={cn(
+                  'inline-block text-[10px] font-medium px-2 py-0.5 rounded-full capitalize',
+                  a.is_new
+                    ? 'bg-accent/15 text-accent'
+                    : 'bg-muted text-muted-foreground'
+                )}>
+                  {a.is_new ? 'New' : 'Existing'} Expat
+                </span>
+              </div>
+
+              {/* Bottom — submitted date */}
+              <div className="mt-auto pt-4 border-t border-border">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Submitted</p>
+                <p className="text-xs font-medium text-foreground mt-0.5">
                   {new Date(a.submitted_at!).toLocaleDateString('en-US', {
                     month: 'short', day: 'numeric', year: 'numeric',
                   })}
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setViewingId(a.id)}>
-                View
-              </Button>
-            </div>
+            </button>
           ))}
         </div>
       )}
