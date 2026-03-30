@@ -303,39 +303,20 @@ export default function CustomersPage() {
 
         console.log('STEP C: Update result:', error);
 
-        if (error) {
-          toast({
-            title: 'Error',
-            description: error.message,
-            variant: 'destructive'
-          });
-          return;
-        }
+        if (error) throw error;
 
         toast({
           title: 'Updated',
-          description: `${formData.name} updated.`
+          description: `${formData.name} updated.`,
         });
 
       } else {
         console.log('STEP D: Creating new customer');
 
-        // Generate employee ID
-        const { data: lastRaw } = await supabase
-          .from('customers')
-          .select('employee_id')
-          .order('id', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        const lastNum =
-          parseInt(((lastRaw as any)?.employee_id ?? 'EMP-0000').replace('EMP-', ''), 10) || 0;
-
-        const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
-
+        // ✅ FIXED: no DB call → no RLS issue
+        const newEmployeeId = `EMP-${Date.now()}`;
         console.log('STEP E: Generated employee ID:', newEmployeeId);
 
-        // Get session
         const { data: { session } } = await supabase.auth.getSession();
         console.log('STEP F: Session:', session);
 
@@ -345,14 +326,14 @@ export default function CustomersPage() {
 
         const controller = new AbortController();
         const timeout = setTimeout(() => {
-          console.error('⛔ Request timed out after 15s');
+          console.error('⛔ Request timed out');
           controller.abort();
         }, 15000);
 
         let apiRes: Response;
 
         try {
-          console.log('STEP G: Sending request to API');
+          console.log('STEP G: Calling API');
 
           apiRes = await fetch('/api/create-user', {
             method: 'POST',
@@ -371,7 +352,7 @@ export default function CustomersPage() {
           console.error('STEP H: FETCH ERROR:', err);
 
           if (err.name === 'AbortError') {
-            throw new Error('Request timed out. Backend is not responding.');
+            throw new Error('Request timed out. Backend not responding.');
           }
 
           throw err;
@@ -379,47 +360,46 @@ export default function CustomersPage() {
           clearTimeout(timeout);
         }
 
-        console.log('STEP I: API response status:', apiRes.status);
+        console.log('STEP I: API status:', apiRes.status);
 
-        let result: any;
+        let result;
         try {
           result = await apiRes.json();
-        } catch (e) {
-          console.error('STEP J: Failed to parse JSON');
-          throw new Error('Invalid response from server');
+        } catch {
+          throw new Error('Invalid server response');
         }
 
-        console.log('STEP K: API response body:', result);
+        console.log('STEP J: API response:', result);
 
         if (!apiRes.ok) {
           throw new Error(result.error || 'Failed to create customer');
         }
 
-        console.log('STEP L: Customer created successfully');
+        console.log('STEP K: SUCCESS');
 
         toast({
           title: 'Added',
-          description: `${formData.name} added. They can log in with their phone/password.`,
+          description: `${formData.name} added successfully`,
         });
       }
 
-      console.log('STEP M: Closing drawer & refreshing');
+      console.log('STEP L: Refreshing data');
 
       setDrawerOpen(false);
       await fetchCustomers();
 
     } catch (err: any) {
-      console.error('FINAL FRONTEND ERROR:', err);
+      console.error('FINAL ERROR:', err);
 
       toast({
         title: 'Error',
-        description: err?.message || 'Something went wrong.',
+        description: err?.message || 'Something went wrong',
         variant: 'destructive'
       });
 
     } finally {
       setSaving(false);
-      console.log('STEP Z: Saving state reset');
+      console.log('STEP Z: Done');
     }
   };
 
