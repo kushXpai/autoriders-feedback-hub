@@ -184,62 +184,77 @@ export default function CustomersPage() {
     }
     setSaving(true);
 
-    const payload = {
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone || null,
-      is_active: formData.is_active,
-      allocated_car: formData.allocated_car || null,
-      car_registration_number: formData.car_registration_number || null,
-      start_date: formData.start_date || null,
-      end_date: formData.end_date || null,
-      expat_type: formData.expat_type,
-    };
+    try {
+      const payload = {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone || null,
+        is_active: formData.is_active,
+        allocated_car: formData.allocated_car || null,
+        car_registration_number: formData.car_registration_number || null,
+        start_date: formData.start_date || null,
+        end_date: formData.end_date || null,
+        expat_type: formData.expat_type,
+      };
 
-    if (editingCustomer) {
-      const { error } = await (supabase.from('customers') as any)
-        .update(payload)
-        .eq('id', editingCustomer.id);
-      if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setSaving(false); return; }
+      if (editingCustomer) {
+        const { error } = await (supabase.from('customers') as any)
+          .update(payload)
+          .eq('id', editingCustomer.id);
+        if (error) {
+          toast({ title: 'Error', description: error.message, variant: 'destructive' });
+          return;
+        }
+        toast({ title: 'Updated', description: `${formData.name} updated.` });
 
-      toast({ title: 'Updated', description: `${formData.name} updated.` });
+      } else {
+        const { data: lastRaw } = await supabase
+          .from('customers').select('employee_id').order('id', { ascending: false }).limit(1).maybeSingle();
+        const lastNum = parseInt(((lastRaw as any)?.employee_id ?? 'EMP-0000').replace('EMP-', ''), 10) || 0;
+        const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
 
-    } else {
-      // Generate next employee_id
-      const { data: lastRaw } = await supabase
-        .from('customers').select('employee_id').order('id', { ascending: false }).limit(1).maybeSingle();
-      const lastNum = parseInt(((lastRaw as any)?.employee_id ?? 'EMP-0000').replace('EMP-', ''), 10) || 0;
-      const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
+        const { data: { session } } = await supabase.auth.getSession();
 
-      // Call API to create auth.users + profiles + user_roles + customers
-      const { data: { session } } = await supabase.auth.getSession();
-      const apiRes = await fetch('/api/create-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({ ...payload, employee_id: newEmployeeId }),
-      });
-      const result = await apiRes.json();
-      if (!apiRes.ok) {
-        toast({ title: 'Error', description: result.error || 'Failed to create customer.', variant: 'destructive' });
-        setSaving(false);
-        return;
+        // ✅ Add a timeout so it can't hang forever
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000); // 15s
+
+        let apiRes: Response;
+        try {
+          apiRes = await fetch('/api/create-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+            body: JSON.stringify({ ...payload, employee_id: newEmployeeId }),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        const result = await apiRes.json();
+        if (!apiRes.ok) {
+          toast({ title: 'Error', description: result.error || 'Failed to create customer.', variant: 'destructive' });
+          return;
+        }
+
+        toast({ title: 'Added', description: `${formData.name} added.` });
       }
 
-      toast({ title: 'Added', description: `${formData.name} added. They can log in with their phone number as password.` });
-    }
+      setDrawerOpen(false);
+      await fetchCustomers();
 
-    setDrawerOpen(false);
-    await fetchCustomers();
-    setSaving(false);
+    } catch (err: any) {
+      const msg = err?.name === 'AbortError' ? 'Request timed out. Check your API.' : (err?.message ?? 'Something went wrong.');
+      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    } finally {
+      setSaving(false); // ✅ ALWAYS runs
+    }
   };
 
   const statCards = [
-    { label: 'Total',    value: totalCount,    icon: Users,     bg: 'bg-primary/10',     color: 'text-primary' },
-    { label: 'Active',   value: activeCount,   icon: UserCheck, bg: 'bg-emerald-500/10', color: 'text-emerald-600' },
-    { label: 'Inactive', value: inactiveCount, icon: UserX,     bg: 'bg-muted',          color: 'text-muted-foreground' },
+    { label: 'Total', value: totalCount, icon: Users, bg: 'bg-primary/10', color: 'text-primary' },
+    { label: 'Active', value: activeCount, icon: UserCheck, bg: 'bg-emerald-500/10', color: 'text-emerald-600' },
+    { label: 'Inactive', value: inactiveCount, icon: UserX, bg: 'bg-muted', color: 'text-muted-foreground' },
   ];
 
   return (
