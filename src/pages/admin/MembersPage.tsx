@@ -1,7 +1,7 @@
 // src/pages/admin/MembersPage.tsx
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Trash2, KeyRound, ChevronDown, Shield, UserCog, Users, Eye, EyeOff, Loader2, X, MoreHorizontal } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
@@ -30,13 +30,6 @@ const ROLE_OPTIONS: { value: AppRole; label: string; color: string }[] = [
 function getRoleConfig(role: AppRole) {
   return ROLE_OPTIONS.find(r => r.value === role) ?? ROLE_OPTIONS[3];
 }
-
-// ─── Supabase client (anon, for reading profiles+roles) ───────────────────────
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 // ─── Modal: Add Member ────────────────────────────────────────────────────────
 
