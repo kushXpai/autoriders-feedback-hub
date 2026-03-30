@@ -30,9 +30,9 @@ const sectionKeys: QuestionSection[] = [
 
 const sectionLabels: Record<QuestionSection, string> = {
   service_initiation: 'Service Initiation',
-  service_delivery:   'Service Delivery',
-  driver_quality:     'Driver Quality',
-  overall:            'Overall Experience',
+  service_delivery: 'Service Delivery',
+  driver_quality: 'Driver Quality',
+  overall: 'Overall Experience',
 };
 
 function getScoreColor(score: number) {
@@ -69,20 +69,20 @@ interface QuarterCardData {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FeedbackPage() {
-  const [loading, setLoading]             = useState(true);
-  const [quarters, setQuarters]           = useState<Quarter[]>([]);
-  const [customers, setCustomers]         = useState<Customer[]>([]);
-  const [questions, setQuestions]         = useState<Question[]>([]);
-  const [assignments, setAssignments]     = useState<FeedbackAssignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [quarters, setQuarters] = useState<Quarter[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [assignments, setAssignments] = useState<FeedbackAssignment[]>([]);
 
   // Responses + comments keyed by assignment id — loaded lazily per quarter
-  const [responseMap, setResponseMap]     = useState<Record<number, FeedbackResponse[]>>({});
-  const [commentMap, setCommentMap]       = useState<Record<number, string | null>>({});
+  const [responseMap, setResponseMap] = useState<Record<number, FeedbackResponse[]>>({});
+  const [commentMap, setCommentMap] = useState<Record<number, string | null>>({});
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Navigation / filter state
-  const [selectedQuarter, setSelectedQuarter]           = useState<string | null>(null);
-  const [statusFilter, setStatusFilter]                 = useState<StatusFilter>('all');
+  const [selectedQuarter, setSelectedQuarter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<number | null>(null);
 
   // ─── Initial fetch ───────────────────────────────────────────────────────────
@@ -175,14 +175,14 @@ export default function FeedbackPage() {
         return parse(b[0]) - parse(a[0]);
       })
       .map(([quarterId, qAssignments]) => {
-        const label     = quarters.find(q => q.id === quarterId)?.label ?? quarterId;
+        const label = quarters.find(q => q.id === quarterId)?.label ?? quarterId;
         const submitted = qAssignments.filter(a => a.status === 'submitted').length;
-        const pending   = qAssignments.filter(a => a.status === 'pending').length;
-        const total     = qAssignments.length;
-        const earliest  = qAssignments
+        const pending = qAssignments.filter(a => a.status === 'pending').length;
+        const total = qAssignments.length;
+        const earliest = qAssignments
           .map(a => new Date(a.created_at).getTime())
           .sort((a, b) => a - b)[0];
-        const sentDate  = earliest
+        const sentDate = earliest
           ? new Date(earliest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
           : '—';
         return { quarterId, label, total, submitted, pending, sentDate };
@@ -198,25 +198,25 @@ export default function FeedbackPage() {
       .filter(a => statusFilter === 'all' || a.status === statusFilter)
       .map(a => {
         const customer = customers.find(c => c.id === a.customer_id) ?? null;
-        const isNew    = customer?.expat_type === 'new';
+        const isNew = customer?.expat_type === 'new';
         return {
           ...a,
           customer,
           isNew,
           responses: responseMap[a.id] ?? [],
-          comment:   commentMap[a.id] ?? null,
+          comment: commentMap[a.id] ?? null,
         };
       });
   }, [selectedQuarter, statusFilter, assignments, customers, responseMap, commentMap]);
 
   // ─── Detail slide-over data ──────────────────────────────────────────────────
-  const selectedRow          = filteredRows.find(r => r.id === selectedAssignmentId) ?? null;
+  const selectedRow = filteredRows.find(r => r.id === selectedAssignmentId) ?? null;
   const selectedQuarterLabel = quarters.find(q => q.id === selectedRow?.quarter_id)?.label ?? '';
 
   const statusFilters: { value: StatusFilter; label: string }[] = [
-    { value: 'all',       label: 'All' },
+    { value: 'all', label: 'All' },
     { value: 'submitted', label: 'Submitted' },
-    { value: 'pending',   label: 'Pending' },
+    { value: 'pending', label: 'Pending' },
   ];
 
   // ─── Loading state ───────────────────────────────────────────────────────────
@@ -245,7 +245,7 @@ export default function FeedbackPage() {
                 label={card.label}
                 rows={[
                   { label: 'Total Sent', value: `${card.total} customers` },
-                  { label: 'Sent on',    value: card.sentDate },
+                  { label: 'Sent on', value: card.sentDate },
                 ]}
                 progress={{ value: card.submitted, max: card.total }}
                 onClick={() => { setSelectedQuarter(card.quarterId); setStatusFilter('all'); }}
@@ -454,8 +454,10 @@ export default function FeedbackPage() {
               <div className="mt-6 space-y-6">
                 {sectionKeys.map(sectionKey => {
                   if (sectionKey === 'service_initiation' && !selectedRow.isNew) return null;
+
                   const sectionQuestions = questions.filter(q => q.section === sectionKey);
                   if (sectionQuestions.length === 0) return null;
+
                   return (
                     <div key={sectionKey}>
                       <h3 className="text-sm font-semibold text-foreground mb-3 uppercase tracking-wide">
@@ -471,15 +473,22 @@ export default function FeedbackPage() {
                                 Q{q.question_number}
                               </span>
                               <div className="flex-1">
-                                <p className="text-sm text-foreground leading-snug">{q.text}</p>
+                                <p className="text-sm text-foreground leading-snug">
+                                  {q.text}
+                                </p>
+
                                 <div className="flex items-center gap-2 mt-1.5">
-                                  <span className={cn(
-                                    'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white',
-                                    getScoreColor(resp.score)
-                                  )}>
+                                  <span
+                                    className={cn(
+                                      'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white',
+                                      getScoreColor(resp.score)
+                                    )}
+                                  >
                                     {resp.score}
                                   </span>
-                                  <span className="text-xs text-muted-foreground">
+
+                                  {/* ✅ UPDATED: Bold + black label */}
+                                  <span className="text-xs font-semibold text-foreground">
                                     {getScoreLabel(resp.score)}
                                   </span>
                                 </div>
@@ -497,7 +506,8 @@ export default function FeedbackPage() {
                     <h3 className="text-sm font-semibold text-foreground mb-2 uppercase tracking-wide">
                       Comments
                     </h3>
-                    <p className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3 leading-relaxed">
+
+                    <p className="text-sm text-foreground bg-muted/50 rounded-lg p-3 leading-relaxed font-medium">
                       {selectedRow.comment}
                     </p>
                   </div>
