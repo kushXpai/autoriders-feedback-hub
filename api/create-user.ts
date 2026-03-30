@@ -76,7 +76,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
-      .insert({ id: userId, name, email });
+      .upsert(
+        { id: userId, name, email },
+        { onConflict: 'id' }
+      );
 
     if (profileError) throw profileError;
 
