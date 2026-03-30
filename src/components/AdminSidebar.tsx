@@ -17,7 +17,7 @@ const ALL_NAV_ITEMS = [
   { label: 'Members',       icon: UsersRound,         path: '/admin/members',       roles: ['superadmin', 'admin'] },
   { label: 'Send Feedback', icon: Send,               path: '/admin/send-feedback', roles: ['superadmin', 'admin', 'manager', 'user'] },
   { label: 'Feedback',      icon: MessageSquareText,  path: '/admin/feedback',      roles: ['superadmin', 'admin', 'manager', 'vendor_admin'] },
-  { label: 'Reports',       icon: BarChart3,          path: '/admin/reports',       roles: ['superadmin', 'admin'] },
+  { label: 'Reports',       icon: BarChart3,          path: '/admin/reports',       roles: ['superadmin', 'admin', 'manager'] },
   { label: 'Profile',       icon: UserCircle,         path: '/admin/profile',       roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
 ];
 
