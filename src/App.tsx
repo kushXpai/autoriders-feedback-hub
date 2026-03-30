@@ -1,6 +1,5 @@
 // src/App.tsx
-// src/App.tsx
-import React, { useMemo } from "react";
+import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -26,6 +25,7 @@ import CustomerPreviousFeedbackPage from "./pages/customer/CustomerPreviousFeedb
 
 import ProfilePage from "./pages/ProfilePage";
 import NotFound from "./pages/NotFound";
+import MembersPage from "./pages/admin/MembersPage";
 
 // Created ONCE at module level — never inside a component body.
 // If placed inside <App>, a new QueryClient is created on every render
@@ -80,7 +80,7 @@ const AuthRedirect = React.memo(function AuthRedirect() {
   if (isAuthenticated) {
     return (
       <Navigate
-        to={user?.role === "admin" ? "/admin" : "/customer"}
+        to={user?.role === "customer" ? "/customer" : "/admin"}
         replace
       />
     );
@@ -103,13 +103,11 @@ const RequireAuth = React.memo(function RequireAuth({
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
-  if (role && user?.role !== role) {
-    return (
-      <Navigate
-        to={user?.role === "admin" ? "/admin" : "/customer"}
-        replace
-      />
-    );
+  if (role === "customer" && user?.role !== "customer") {
+    return <Navigate to="/admin" replace />;
+  }
+  if (role === "admin" && user?.role === "customer") {
+    return <Navigate to="/customer" replace />;
   }
 
   return <>{children}</>;
@@ -146,6 +144,7 @@ function AppRoutes() {
       >
         <Route index element={<DashboardPage />} />
         <Route path="customers" element={<CustomersPage />} />
+        <Route path="members" element={<MembersPage />} />
         <Route path="customers/:id" element={<CustomerProfilePage />} />
         <Route path="feedback" element={<FeedbackPage />} />
         <Route path="reports" element={<ReportsPage />} />

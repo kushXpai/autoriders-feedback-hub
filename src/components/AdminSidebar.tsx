@@ -1,18 +1,27 @@
 // src/components/AdminSidebar.tsx
-import { LayoutDashboard, Users, MessageSquareText, BarChart3, Send, LogOut, ChevronLeft, ChevronRight, UserCircle, X } from 'lucide-react';
+import { LayoutDashboard, Users, MessageSquareText, BarChart3, Send, LogOut, ChevronLeft, ChevronRight, UserCircle, X, UsersRound } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import type { Dispatch, SetStateAction } from 'react';
 
-const navItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/admin' },
-  { label: 'Customers', icon: Users, path: '/admin/customers' },
-  { label: 'Send Feedback', icon: Send, path: '/admin/send-feedback' },
-  { label: 'Feedback', icon: MessageSquareText, path: '/admin/feedback' },
-  { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
-  { label: 'Profile', icon: UserCircle, path: '/admin/profile' },
+// ─── Role Type ────────────────────────────────────────────────────────────────
+
+type AppRole = 'superadmin' | 'admin' | 'manager' | 'user' | 'vendor_admin' | 'customer';
+
+// ─── Nav Items ────────────────────────────────────────────────────────────────
+
+const ALL_NAV_ITEMS = [
+  { label: 'Dashboard',     icon: LayoutDashboard,   path: '/admin',               roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
+  { label: 'Customers',     icon: Users,              path: '/admin/customers',     roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
+  { label: 'Members',       icon: UsersRound,         path: '/admin/members',       roles: ['superadmin', 'admin'] },
+  { label: 'Send Feedback', icon: Send,               path: '/admin/send-feedback', roles: ['superadmin', 'admin', 'manager', 'user'] },
+  { label: 'Feedback',      icon: MessageSquareText,  path: '/admin/feedback',      roles: ['superadmin', 'admin', 'manager', 'vendor_admin'] },
+  { label: 'Reports',       icon: BarChart3,          path: '/admin/reports',       roles: ['superadmin', 'admin'] },
+  { label: 'Profile',       icon: UserCircle,         path: '/admin/profile',       roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
 ];
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface AdminSidebarProps {
   open: boolean;
@@ -21,8 +30,16 @@ interface AdminSidebarProps {
   setCollapsed: Dispatch<SetStateAction<boolean>>;
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function AdminSidebar({ open, onClose, collapsed, setCollapsed }: AdminSidebarProps) {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const userRole = user?.role;
+
+  // Filter nav items based on current user's role
+  const navItems = ALL_NAV_ITEMS.filter(item =>
+    item.roles.includes(userRole as AppRole)
+  );
 
   const sidebarContent = (
     <aside
