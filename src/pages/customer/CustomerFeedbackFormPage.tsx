@@ -43,6 +43,47 @@ function getScoreLabel(score: number) {
   return scoreOptions.find(o => o.value === score)?.label ?? '';
 }
 
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return '—';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '—';
+  }
+}
+
+function CustomerInfoCard({
+  name, carReg, startDate, endDate,
+}: {
+  name: string | null;
+  carReg: string | null;
+  startDate: string | null;
+  endDate: string | null;
+}) {
+  return (
+    <div className="bg-card rounded-xl border border-border shadow-sm p-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="space-y-0.5">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Name</p>
+          <p className="text-sm font-medium text-foreground truncate">{name ?? '—'}</p>
+        </div>
+        <div className="space-y-0.5">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Car Reg. No.</p>
+          <p className="text-sm font-medium text-foreground">{carReg ?? '—'}</p>
+        </div>
+        <div className="space-y-0.5">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Start Date</p>
+          <p className="text-sm font-medium text-foreground">{formatDate(startDate)}</p>
+        </div>
+        <div className="space-y-0.5">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">End Date</p>
+          <p className="text-sm font-medium text-foreground">{formatDate(endDate)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PageData {
@@ -52,6 +93,11 @@ interface PageData {
   questions: Question[];
   existingResponses: FeedbackResponse[];
   existingComment: string | null;
+  // Customer info card fields
+  customerName: string | null;
+  carRegistrationNumber: string | null;
+  startDate: string | null;
+  endDate: string | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -81,7 +127,7 @@ export default function CustomerFeedbackFormPage() {
       // 2. Get customer record linked to this user
       const { data: customerRow } = await (supabase as any)
         .from('customers')
-        .select('id, expat_type')
+        .select('id, expat_type, name, car_registration_number, start_date, end_date')
         .eq('user_id', user.id)
         .single();
 
@@ -146,6 +192,10 @@ export default function CustomerFeedbackFormPage() {
         questions,
         existingResponses,
         existingComment,
+        customerName: (customerRow as any).name ?? null,
+        carRegistrationNumber: (customerRow as any).car_registration_number ?? null,
+        startDate: (customerRow as any).start_date ?? null,
+        endDate: (customerRow as any).end_date ?? null,
       });
 
       setLoading(false);
@@ -237,7 +287,8 @@ export default function CustomerFeedbackFormPage() {
     );
   }
 
-  const { assignment, isNew, quarterLabel, existingResponses, existingComment } = pageData;
+  const { assignment, isNew, quarterLabel, existingResponses, existingComment,
+    customerName, carRegistrationNumber, startDate, endDate } = pageData;
 
   // ─── Just submitted — thank you screen ─────────────────────────────────────
 
@@ -265,6 +316,7 @@ export default function CustomerFeedbackFormPage() {
   if (assignment.status === 'submitted') {
     return (
       <div className="animate-fade-in-up space-y-5 max-w-lg mx-auto md:max-w-2xl">
+        <CustomerInfoCard name={customerName} carReg={carRegistrationNumber} startDate={startDate} endDate={endDate} />
         <div className="bg-emerald-500/10 rounded-xl border border-emerald-500/20 p-4">
           <p className="text-sm font-medium text-foreground">
             You have already submitted your {quarterLabel} feedback
@@ -338,6 +390,9 @@ export default function CustomerFeedbackFormPage() {
 
   return (
     <div className="animate-fade-in-up space-y-4 max-w-lg mx-auto md:max-w-2xl">
+
+      {/* Customer info */}
+      <CustomerInfoCard name={customerName} carReg={carRegistrationNumber} startDate={startDate} endDate={endDate} />
 
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
