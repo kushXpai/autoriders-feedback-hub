@@ -96,15 +96,24 @@ function DonutChart({ pct, color, size = 72 }: { pct: number; color: string; siz
   );
 }
 
-/** Horizontal bar — used inside per-question rows */
-function MiniBar({ pct, color }: { pct: number; color: string }) {
+/** Small ring chart for per-question cards */
+function MiniRing({ pct, color, size = 52 }: { pct: number; color: string; size?: number }) {
+  const r    = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = (pct / 100) * circ;
+  const cx   = size / 2;
+  const cy   = size / 2;
   return (
-    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-      <div
-        className="h-full rounded-full transition-all duration-700"
-        style={{ width: `${pct}%`, backgroundColor: color }}
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg] shrink-0">
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="currentColor" strokeWidth={5} className="text-muted/40" />
+      <circle
+        cx={cx} cy={cy} r={r} fill="none"
+        stroke={color} strokeWidth={5}
+        strokeDasharray={`${dash} ${circ - dash}`}
+        strokeLinecap="round"
+        style={{ transition: 'stroke-dasharray 0.8s ease' }}
       />
-    </div>
+    </svg>
   );
 }
 
@@ -596,56 +605,47 @@ export default function ReportDetailPage() {
             </CollapsibleTrigger>
 
             <CollapsibleContent>
-              <div className="px-5 pb-5 space-y-3 border-t border-border pt-4">
+              <div className="px-5 pb-5 border-t border-border pt-4">
                 {s.respCount === 0 ? (
                   <p className="text-sm text-muted-foreground italic">No applicable respondents for this section.</p>
                 ) : (
-                  s.questionStats.map(qs => {
-                    const counts = [1, 2, 3, 4].map(sc => qs.scores.filter(x => x === sc).length);
-                    const total  = qs.scores.length || 1;
-                    const scoreColors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
-                    return (
-                      <div key={qs.question.id} className="space-y-1.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex gap-2 flex-1 min-w-0">
-                            <span className="text-xs font-mono text-muted-foreground shrink-0 mt-0.5">
-                              Q{qs.question.question_number}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {s.questionStats.map(qs => {
+                      const counts     = [1, 2, 3, 4].map(sc => qs.scores.filter(x => x === sc).length);
+                      const scoreColors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
+                      return (
+                        <div
+                          key={qs.question.id}
+                          className="bg-muted/30 rounded-lg border border-border/60 p-3 flex items-start gap-3"
+                        >
+                          {/* Ring */}
+                          <div className="relative shrink-0">
+                            <MiniRing pct={qs.pct} color={s.colors.bar} size={52} />
+                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-foreground">
+                              {qs.pct.toFixed(0)}%
                             </span>
-                            <span className="text-xs text-foreground leading-relaxed">{qs.question.text}</span>
                           </div>
-                          <div className="text-right shrink-0">
-                            <span className="text-sm font-bold text-foreground">{qs.avg.toFixed(2)}</span>
-                            <span className="text-[10px] text-muted-foreground">/4</span>
-                            <span className="block text-[10px] text-muted-foreground">{qs.pct.toFixed(0)}%</span>
-                          </div>
-                        </div>
-                        {/* Single stacked bar showing score breakdown */}
-                        <div className="pl-6 space-y-1">
-                          <div className="flex h-3 rounded-full overflow-hidden w-full bg-muted">
-                            {counts.map((c, i) => {
-                              const pct = (c / total) * 100;
-                              return pct > 0 ? (
-                                <div
-                                  key={i}
-                                  className="h-full transition-all duration-700"
-                                  style={{ width: `${pct}%`, backgroundColor: scoreColors[i] }}
-                                  title={`Score ${i + 1}: ${c} response${c !== 1 ? 's' : ''}`}
-                                />
-                              ) : null;
-                            })}
-                          </div>
-                          <div className="flex gap-3 flex-wrap">
-                            {counts.map((c, i) => c > 0 && (
-                              <span key={i} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: scoreColors[i] }} />
-                                {i + 1}: {c}
-                              </span>
-                            ))}
+                          {/* Text + score dots */}
+                          <div className="flex-1 min-w-0 space-y-1.5">
+                            <div className="flex items-start gap-1">
+                              <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5">Q{qs.question.question_number}</span>
+                              <span className="text-[11px] text-foreground leading-snug line-clamp-3">{qs.question.text}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-foreground">{qs.avg.toFixed(2)}<span className="text-[10px] font-normal text-muted-foreground">/4</span></span>
+                              <span className="text-muted-foreground/40 text-[10px]">·</span>
+                              {counts.map((c, i) => c > 0 && (
+                                <span key={i} className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: scoreColors[i] }} />
+                                  {i + 1}:{c}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </CollapsibleContent>
