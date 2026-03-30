@@ -38,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (roleData.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
 
     // ── Validate request body ─────────────────────────────────────────────────
-    const { name, email, phone, employee_id, expat_type, allocated_car, start_date, end_date, is_active } = req.body;
+    const { name, email, phone, employee_id, expat_type, allocated_car, car_registration_number, start_date, end_date, is_active } = req.body;
 
     if (!name || !email || !phone) {
       return res.status(400).json({ error: 'Missing required fields: name, email, phone' });
@@ -100,6 +100,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         employee_id,
         expat_type: expat_type ?? 'existing',
         allocated_car: allocated_car || null,
+        car_registration_number: car_registration_number || null,
         start_date: start_date || null,
         end_date: end_date || null,
         is_active: is_active ?? true,

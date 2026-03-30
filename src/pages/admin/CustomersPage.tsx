@@ -25,6 +25,7 @@ interface Customer {
   is_active: boolean;
   created_at: string;
   allocated_car: string | null;
+  car_registration_number: string | null;
   start_date: string | null;
   end_date: string | null;
   user_id: string | null;
@@ -38,13 +39,14 @@ interface FormData {
   expat_type: 'new' | 'existing';
   is_active: boolean;
   allocated_car: string;
+  car_registration_number: string;
   start_date: string;
   end_date: string;
 }
 
 const EMPTY_FORM: FormData = {
   name: '', email: '', phone: '', expat_type: 'existing',
-  is_active: true, allocated_car: '', start_date: '', end_date: '',
+  is_active: true, allocated_car: '', car_registration_number: '', start_date: '', end_date: '',
 };
 
 export default function CustomersPage() {
@@ -168,7 +170,8 @@ export default function CustomersPage() {
     setFormData({
       name: c.name, email: c.email, phone: c.phone ?? '',
       expat_type: c.expat_type ?? 'existing', is_active: c.is_active,
-      allocated_car: c.allocated_car ?? '', start_date: c.start_date ?? '', end_date: c.end_date ?? '',
+      allocated_car: c.allocated_car ?? '', car_registration_number: c.car_registration_number ?? '',
+      start_date: c.start_date ?? '', end_date: c.end_date ?? '',
     });
     setDrawerOpen(true);
   };
@@ -187,6 +190,7 @@ export default function CustomersPage() {
       phone: formData.phone || null,
       is_active: formData.is_active,
       allocated_car: formData.allocated_car || null,
+      car_registration_number: formData.car_registration_number || null,
       start_date: formData.start_date || null,
       end_date: formData.end_date || null,
       expat_type: formData.expat_type,
@@ -437,6 +441,10 @@ export default function CustomersPage() {
             <div className="space-y-1.5">
               <Label>Allocated Car</Label>
               <Input value={formData.allocated_car} onChange={e => setFormData(p => ({ ...p, allocated_car: e.target.value }))} placeholder="e.g. Toyota Camry" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Car Registration Number</Label>
+              <Input value={formData.car_registration_number} onChange={e => setFormData(p => ({ ...p, car_registration_number: e.target.value }))} placeholder="e.g. ABC-1234" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
