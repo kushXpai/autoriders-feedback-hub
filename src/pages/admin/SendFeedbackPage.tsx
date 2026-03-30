@@ -34,6 +34,7 @@ export default function SendFeedbackPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [quarterSearch, setQuarterSearch] = useState('');
   const [sending, setSending] = useState(false);
+  const [emailResults, setEmailResults] = useState<{ sent: number; failed: number } | null>(null);
 
   // ─── Activate quarter state ───────────────────────────────────────────────
   const [activating, setActivating] = useState(false);
@@ -147,11 +148,13 @@ export default function SendFeedbackPage() {
     setModalStep('customers');
   };
 
-  // ─── Send feedback assignments ────────────────────────────────────────────
+  // ─── Send feedback assignments + trigger emails ──────────────────────────
   const handleSend = async () => {
     if (selectedIds.length === 0) return;
     setSending(true);
+    setEmailResults(null);
 
+    // Step 1: Insert feedback_assignments rows
     const rows = selectedIds.map(customerId => ({
       quarter_id: modalQuarter,
       customer_id: customerId,
@@ -169,12 +172,55 @@ export default function SendFeedbackPage() {
     }
 
     setAssignments(prev => [...prev, ...((data ?? []) as FeedbackAssignment[])]);
+
+    // Step 2: Fire emails to selected customers
+    try {
+      const selectedCustomers = customers
+        .filter(c => selectedIds.includes(c.id))
+        .map(c => ({ name: c.name, email: c.email, phone: c.phone ?? null }));
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const emailRes = await fetch('/api/send-feedback-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          quarterLabel: modalQuarterObj?.label ?? modalQuarter,
+          appUrl: window.location.origin,
+          customers: selectedCustomers,
+        }),
+      });
+
+      const emailData = await emailRes.json();
+
+      if (emailRes.ok) {
+        setEmailResults({ sent: emailData.sent ?? 0, failed: (emailData.total ?? 0) - (emailData.sent ?? 0) });
+        toast({
+          title: 'Forms assigned & emails sent!',
+          description: `${rows.length} customer(s) assigned. ${emailData.sent} email(s) delivered for ${modalQuarterObj?.label}.`,
+        });
+      } else {
+        // Assignments succeeded but emails failed — still a partial success
+        toast({
+          title: 'Assigned, but email failed',
+          description: emailData.error ?? 'Could not send notification emails. Assignments were saved.',
+          variant: 'destructive',
+        });
+      }
+    } catch (emailErr: any) {
+      // Don't block the user — assignments are saved, emails just didn't fire
+      toast({
+        title: 'Assigned, but email error',
+        description: 'Feedback forms were assigned. Email notifications could not be sent.',
+        variant: 'destructive',
+      });
+    }
+
     setModalOpen(false);
     setSending(false);
-    toast({
-      title: 'Feedback forms sent!',
-      description: `${rows.length} customer(s) assigned for ${modalQuarterObj?.label}.`,
-    });
   };
 
   // ─── Quarter cards ────────────────────────────────────────────────────────
