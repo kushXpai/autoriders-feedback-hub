@@ -72,15 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const userId = authData.user?.id;
     if (!userId) throw new Error('No user ID');
 
-    console.log('STEP 6: Insert profile');
-
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .insert({ id: userId, name, email });
-
-    if (profileError) throw profileError;
-
-    console.log('STEP 7: Insert role');
+    console.log('STEP 6: Insert role');
 
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
@@ -88,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (roleError) throw roleError;
 
-    console.log('STEP 8: Insert customer');
+    console.log('STEP 7: Insert customer');
 
     const { data: customer, error: customerError } = await supabaseAdmin
       .from('customers')
@@ -108,7 +100,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select()
       .single();
 
-    console.log('STEP 9:', customer, customerError);
+    console.log('STEP 8:', customer, customerError);
 
     if (customerError) throw customerError;
 
