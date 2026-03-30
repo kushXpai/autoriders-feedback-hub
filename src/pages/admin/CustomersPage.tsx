@@ -1,7 +1,7 @@
 // src/pages/admin/CustomersPage.tsx
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Trash2, Pencil, MoreVertical, Users, UserCheck, UserX, Filter } from 'lucide-react';
+import { Search, Plus, Trash2, Pencil, MoreVertical, Users, UserCheck, UserX, Filter, Upload, Download, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -44,17 +44,119 @@ interface FormData {
   end_date: string;
 }
 
+// ── Bulk upload row ───────────────────────────────────────────────────────────
+interface BulkRow {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+  expat_type: 'new' | 'existing';
+  allocated_car: string;
+  car_registration_number: string;
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+  // validation state
+  _rowNum: number;
+  _errors: string[];
+}
+
+interface BulkResult {
+  row: number;
+  email: string;
+  success: boolean;
+  error?: string;
+}
+
 const EMPTY_FORM: FormData = {
   name: '', email: '', phone: '', expat_type: 'existing',
   is_active: true, allocated_car: '', car_registration_number: '', start_date: '', end_date: '',
 };
 
+// ── CSV column aliases (case-insensitive) ──────────────────────────────────
+const COL_MAP: Record<string, keyof BulkRow> = {
+  name: 'name', 'full name': 'name', fullname: 'name',
+  email: 'email', 'e-mail': 'email',
+  phone: 'phone', mobile: 'phone', 'phone number': 'phone',
+  password: 'password', pass: 'password',
+  expat: 'expat_type', 'expat type': 'expat_type', expattype: 'expat_type',
+  'allocated car': 'allocated_car', allocatedcar: 'allocated_car', car: 'allocated_car',
+  'registration number': 'car_registration_number', 'car registration number': 'car_registration_number',
+  registration: 'car_registration_number', 'reg number': 'car_registration_number',
+  'start date': 'start_date', startdate: 'start_date', start: 'start_date',
+  'end date': 'end_date', enddate: 'end_date', end: 'end_date',
+  'active status': 'is_active', active: 'is_active', status: 'is_active', isactive: 'is_active',
+};
+
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') { cell += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      row.push(cell); cell = '';
+    } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); cell = '';
+      if (row.some(c => c.trim())) rows.push(row);
+      row = [];
+    } else {
+      cell += ch;
+    }
+  }
+  if (cell || row.length) { row.push(cell); if (row.some(c => c.trim())) rows.push(row); }
+  return rows;
+}
+
+function parseExcel(buffer: ArrayBuffer): Promise<string[][]> {
+  // Minimal XLSX parser — reads the shared strings + first sheet
+  // We use a dynamic import of the sheetjs-style parser embedded here
+  // to avoid adding a dependency. For production, install 'xlsx' and use that.
+  return new Promise((resolve, reject) => {
+    try {
+      // Try to use globally available XLSX (if loaded) otherwise fall back
+      const XLSXLib = (window as any).XLSX;
+      if (!XLSXLib) {
+        reject(new Error('Please install the xlsx package or upload a CSV file instead.'));
+        return;
+      }
+      const wb = XLSXLib.read(buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data: string[][] = XLSXLib.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      resolve(data as string[][]);
+    } catch (e: any) {
+      reject(new Error(`Failed to parse Excel: ${e.message}`));
+    }
+  });
+}
+
+function parseBool(val: string): boolean {
+  const v = val.trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes' || v === 'active' || v === 'y';
+}
+
+function validateRow(row: BulkRow): string[] {
+  const errs: string[] = [];
+  if (!row.name?.trim()) errs.push('Name required');
+  if (!row.email?.trim()) errs.push('Email required');
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) errs.push('Invalid email');
+  if (!row.phone?.trim()) errs.push('Phone required');
+  const pwd = row.password?.trim() || row.phone?.trim();
+  if (!pwd || pwd.length < 6) errs.push('Password/phone must be ≥6 chars');
+  return errs;
+}
+
 export default function CustomersPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [activeQuarterId, setActiveQuarterId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -65,20 +167,17 @@ export default function CustomersPage() {
   const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
-  // ─── Fetch ────────────────────────────────────────────────────────────────────
+  // ── Bulk upload state ─────────────────────────────────────────────────────
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkResults, setBulkResults] = useState<BulkResult[] | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  // ─── Fetch ────────────────────────────────────────────────────────────────
   const fetchCustomers = async () => {
     setLoading(true);
-
-    // Get active quarter
-    const { data: quarterRaw } = await supabase
-      .from('quarters')
-      .select('id')
-      .eq('is_active', true)
-      .maybeSingle();
-    const quarterId = (quarterRaw as any)?.id ?? null;
-    setActiveQuarterId(quarterId);
-
-    // Get all customers
     const { data: custRaw, error } = await supabase
       .from('customers')
       .select('*')
@@ -89,14 +188,13 @@ export default function CustomersPage() {
       setLoading(false);
       return;
     }
-
     setCustomers((custRaw ?? []) as Customer[]);
     setLoading(false);
   };
 
   useEffect(() => { fetchCustomers(); }, []);
 
-  // ─── Stats ────────────────────────────────────────────────────────────────────
+  // ─── Stats ────────────────────────────────────────────────────────────────
   const totalCount = customers.length;
   const activeCount = customers.filter(c => c.is_active).length;
   const inactiveCount = totalCount - activeCount;
@@ -110,7 +208,7 @@ export default function CustomersPage() {
     return matchesSearch && matchesStatus && matchesExpat;
   }), [customers, search, statusFilter, expatFilter]);
 
-  // ─── Toggle active ────────────────────────────────────────────────────────────
+  // ─── Toggle active ────────────────────────────────────────────────────────
   const toggleActive = async (e: React.MouseEvent, c: Customer) => {
     e.stopPropagation();
     const newVal = !c.is_active;
@@ -124,19 +222,14 @@ export default function CustomersPage() {
     }
   };
 
-  // ─── Delete ───────────────────────────────────────────────────────────────────
+  // ─── Delete ───────────────────────────────────────────────────────────────
   const deleteCustomer = async () => {
     if (!deleteConfirm) return;
-
-    // If customer has an auth user, delete via API (cleans up auth.users + profiles + user_roles)
     if (deleteConfirm.user_id) {
       const { data: { session } } = await supabase.auth.getSession();
       const apiRes = await fetch('/api/delete-user', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({ userId: deleteConfirm.user_id }),
       });
       const result = await apiRes.json();
@@ -145,10 +238,8 @@ export default function CustomersPage() {
         setDeleteConfirm(null);
         return;
       }
-      // Also delete the customers row itself
       await supabase.from('customers').delete().eq('id', deleteConfirm.id);
     } else {
-      // No auth user, just delete the customers row
       const { error } = await supabase.from('customers').delete().eq('id', deleteConfirm.id);
       if (error) {
         toast({ title: 'Error', description: 'Failed to delete.', variant: 'destructive' });
@@ -156,13 +247,12 @@ export default function CustomersPage() {
         return;
       }
     }
-
     setCustomers(prev => prev.filter(c => c.id !== deleteConfirm.id));
     toast({ title: 'Deleted', description: `${deleteConfirm.name} removed.` });
     setDeleteConfirm(null);
   };
 
-  // ─── Drawer open ──────────────────────────────────────────────────────────────
+  // ─── Drawer open ──────────────────────────────────────────────────────────
   const openAdd = () => { setEditingCustomer(null); setFormData(EMPTY_FORM); setDrawerOpen(true); };
   const openEdit = (e: React.MouseEvent, c: Customer) => {
     e.stopPropagation();
@@ -176,14 +266,13 @@ export default function CustomersPage() {
     setDrawerOpen(true);
   };
 
-  // ─── Save ─────────────────────────────────────────────────────────────────────
+  // ─── Save (single) ────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!formData.name || !formData.email) {
       toast({ title: 'Validation', description: 'Name and email are required.', variant: 'destructive' });
       return;
     }
     setSaving(true);
-
     try {
       const payload = {
         name: formData.name,
@@ -199,14 +288,9 @@ export default function CustomersPage() {
 
       if (editingCustomer) {
         const { error } = await (supabase.from('customers') as any)
-          .update(payload)
-          .eq('id', editingCustomer.id);
-        if (error) {
-          toast({ title: 'Error', description: error.message, variant: 'destructive' });
-          return;
-        }
+          .update(payload).eq('id', editingCustomer.id);
+        if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
         toast({ title: 'Updated', description: `${formData.name} updated.` });
-
       } else {
         const { data: lastRaw } = await supabase
           .from('customers').select('employee_id').order('id', { ascending: false }).limit(1).maybeSingle();
@@ -214,11 +298,8 @@ export default function CustomersPage() {
         const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
 
         const { data: { session } } = await supabase.auth.getSession();
-
-        // ✅ Add a timeout so it can't hang forever
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000); // 15s
-
+        const timeout = setTimeout(() => controller.abort(), 15000);
         let apiRes: Response;
         try {
           apiRes = await fetch('/api/create-user', {
@@ -227,34 +308,188 @@ export default function CustomersPage() {
             body: JSON.stringify({ ...payload, employee_id: newEmployeeId }),
             signal: controller.signal,
           });
-        } finally {
-          clearTimeout(timeout);
-        }
+        } finally { clearTimeout(timeout); }
 
         const result = await apiRes.json();
         if (!apiRes.ok) {
           toast({ title: 'Error', description: result.error || 'Failed to create customer.', variant: 'destructive' });
           return;
         }
-
-        toast({ title: 'Added', description: `${formData.name} added.` });
+        toast({ title: 'Added', description: `${formData.name} added. They can log in with their phone/password.` });
       }
 
       setDrawerOpen(false);
       await fetchCustomers();
-
     } catch (err: any) {
-      const msg = err?.name === 'AbortError' ? 'Request timed out. Check your API.' : (err?.message ?? 'Something went wrong.');
+      const msg = err?.name === 'AbortError' ? 'Request timed out.' : (err?.message ?? 'Something went wrong.');
       toast({ title: 'Error', description: msg, variant: 'destructive' });
     } finally {
-      setSaving(false); // ✅ ALWAYS runs
+      setSaving(false);
     }
   };
 
+  // ─── Bulk: parse file ─────────────────────────────────────────────────────
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setParseError(null);
+    setBulkResults(null);
+    setBulkRows([]);
+
+    try {
+      let rawRows: string[][];
+
+      if (file.name.endsWith('.csv') || file.type === 'text/csv') {
+        const text = await file.text();
+        rawRows = parseCSV(text);
+      } else if (file.name.match(/\.xlsx?$/i)) {
+        const buffer = await file.arrayBuffer();
+        rawRows = await parseExcel(buffer);
+      } else {
+        setParseError('Unsupported file type. Please upload a .csv or .xlsx file.');
+        return;
+      }
+
+      if (rawRows.length < 2) { setParseError('File appears empty or has no data rows.'); return; }
+
+      // Map header columns
+      const headers = rawRows[0].map(h => h.trim().toLowerCase());
+      const colIdx: Partial<Record<keyof BulkRow, number>> = {};
+      headers.forEach((h, i) => {
+        const mapped = COL_MAP[h];
+        if (mapped) colIdx[mapped] = i;
+      });
+
+      if (colIdx.name === undefined || colIdx.email === undefined) {
+        setParseError('Could not find required columns: "name" and "email". Check your headers.');
+        return;
+      }
+
+      const get = (row: string[], key: keyof BulkRow) =>
+        colIdx[key] !== undefined ? (row[colIdx[key]!] ?? '').trim() : '';
+
+      const parsed: BulkRow[] = rawRows.slice(1)
+        .filter(r => r.some(c => c.trim()))
+        .map((r, idx) => {
+          const expatRaw = get(r, 'expat_type').toLowerCase();
+          const expat: 'new' | 'existing' = expatRaw === 'new' ? 'new' : 'existing';
+          const isActiveRaw = get(r, 'is_active');
+          const is_active = isActiveRaw === '' ? true : parseBool(isActiveRaw);
+
+          const row: BulkRow = {
+            name: get(r, 'name'),
+            email: get(r, 'email'),
+            phone: get(r, 'phone'),
+            password: get(r, 'password'),
+            expat_type: expat,
+            allocated_car: get(r, 'allocated_car'),
+            car_registration_number: get(r, 'car_registration_number'),
+            start_date: get(r, 'start_date'),
+            end_date: get(r, 'end_date'),
+            is_active,
+            _rowNum: idx + 2,
+            _errors: [],
+          };
+          row._errors = validateRow(row);
+          return row;
+        });
+
+      if (parsed.length === 0) { setParseError('No valid data rows found.'); return; }
+      setBulkRows(parsed);
+      setBulkDialogOpen(true);
+    } catch (err: any) {
+      setParseError(err.message ?? 'Failed to parse file.');
+    }
+  };
+
+  // ─── Bulk: submit ─────────────────────────────────────────────────────────
+  const handleBulkUpload = async () => {
+    const validRows = bulkRows.filter(r => r._errors.length === 0);
+    if (validRows.length === 0) {
+      toast({ title: 'No valid rows', description: 'Fix all errors before uploading.', variant: 'destructive' });
+      return;
+    }
+
+    setBulkUploading(true);
+    setBulkProgress({ done: 0, total: validRows.length });
+    setBulkResults(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      // Send in chunks of 20 to stay well within Vercel's payload + time limits
+      const CHUNK = 20;
+      const allResults: BulkResult[] = [];
+
+      for (let i = 0; i < validRows.length; i += CHUNK) {
+        const chunk = validRows.slice(i, i + CHUNK);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 55000); // 55s — Vercel Pro max
+
+        let res: Response;
+        try {
+          res = await fetch('/api/bulk-create-users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+            body: JSON.stringify({ users: chunk }),
+            signal: controller.signal,
+          });
+        } finally { clearTimeout(timeout); }
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Server error' }));
+          // Mark this whole chunk as failed
+          chunk.forEach((u, ci) => allResults.push({ row: i + ci + 2, email: u.email, success: false, error: err.error }));
+        } else {
+          const data = await res.json();
+          allResults.push(...(data.errors ?? []));
+          // Also push successes (errors array only has failures, reconstruct successes)
+          const failedEmails = new Set((data.errors ?? []).map((e: BulkResult) => e.email));
+          chunk.forEach((u, ci) => {
+            if (!failedEmails.has(u.email)) {
+              allResults.push({ row: i + ci + 2, email: u.email, success: true });
+            }
+          });
+        }
+
+        setBulkProgress({ done: Math.min(i + CHUNK, validRows.length), total: validRows.length });
+      }
+
+      setBulkResults(allResults);
+      const succeeded = allResults.filter(r => r.success).length;
+      toast({
+        title: `Bulk upload complete`,
+        description: `${succeeded} of ${validRows.length} customers created.`,
+        variant: succeeded === validRows.length ? 'default' : 'destructive',
+      });
+      await fetchCustomers();
+    } catch (err: any) {
+      toast({ title: 'Error', description: err?.message ?? 'Bulk upload failed.', variant: 'destructive' });
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  // ─── Bulk: download template ───────────────────────────────────────────────
+  const downloadTemplate = () => {
+    const headers = ['name', 'email', 'phone', 'password', 'expat_type', 'allocated_car', 'car_registration_number', 'start_date', 'end_date', 'active_status'];
+    const example = ['John Smith', 'john@example.com', '1234567890', 'mypassword', 'new', 'Toyota Camry', 'MH01AA0001', '2026-01-01', '2026-06-30', 'true'];
+    const csv = [headers.join(','), example.join(',')].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'customers_template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const invalidCount = bulkRows.filter(r => r._errors.length > 0).length;
+  const validCount = bulkRows.length - invalidCount;
+
   const statCards = [
-    { label: 'Total', value: totalCount, icon: Users, bg: 'bg-primary/10', color: 'text-primary' },
-    { label: 'Active', value: activeCount, icon: UserCheck, bg: 'bg-emerald-500/10', color: 'text-emerald-600' },
-    { label: 'Inactive', value: inactiveCount, icon: UserX, bg: 'bg-muted', color: 'text-muted-foreground' },
+    { label: 'Total',    value: totalCount,    icon: Users,     bg: 'bg-primary/10',     color: 'text-primary' },
+    { label: 'Active',   value: activeCount,   icon: UserCheck, bg: 'bg-emerald-500/10', color: 'text-emerald-600' },
+    { label: 'Inactive', value: inactiveCount, icon: UserX,     bg: 'bg-muted',          color: 'text-muted-foreground' },
   ];
 
   return (
@@ -262,10 +497,36 @@ export default function CustomersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-foreground">Customers</h1>
-        <Button onClick={openAdd} className="bg-accent hover:bg-accent/90 text-accent-foreground">
-          <Plus className="w-4 h-4 mr-1.5" /> Add Customer
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            className="gap-1.5"
+          >
+            <Upload className="w-4 h-4" /> Bulk Upload
+          </Button>
+          <Button onClick={openAdd} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+            <Plus className="w-4 h-4 mr-1.5" /> Add Customer
+          </Button>
+        </div>
       </div>
+
+      {/* Parse error banner */}
+      {parseError && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+          <XCircle className="w-4 h-4 shrink-0" />
+          {parseError}
+          <button onClick={() => setParseError(null)} className="ml-auto text-xs underline">Dismiss</button>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="grid grid-cols-3 gap-4">
@@ -419,6 +680,140 @@ export default function CustomersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={deleteCustomer}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk Upload Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={bulkDialogOpen} onOpenChange={v => { if (!bulkUploading) setBulkDialogOpen(v); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Bulk Upload Customers</DialogTitle>
+            <DialogDescription>
+              Review the {bulkRows.length} rows parsed from your file.
+              {invalidCount > 0 && (
+                <span className="text-destructive font-medium"> {invalidCount} row(s) have errors and will be skipped.</span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Summary bar */}
+          <div className="flex items-center gap-4 px-1 py-2 text-sm">
+            <span className="flex items-center gap-1.5 text-emerald-600 font-medium">
+              <CheckCircle2 className="w-4 h-4" /> {validCount} valid
+            </span>
+            {invalidCount > 0 && (
+              <span className="flex items-center gap-1.5 text-destructive font-medium">
+                <XCircle className="w-4 h-4" /> {invalidCount} invalid (will be skipped)
+              </span>
+            )}
+            <button onClick={downloadTemplate} className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
+              <Download className="w-3.5 h-3.5" /> Download template
+            </button>
+          </div>
+
+          {/* Progress bar */}
+          {bulkUploading && bulkProgress && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Uploading…</span>
+                <span>{bulkProgress.done} / {bulkProgress.total}</span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent transition-all duration-300"
+                  style={{ width: `${(bulkProgress.done / bulkProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Results summary after upload */}
+          {bulkResults && !bulkUploading && (
+            <div className="rounded-lg border p-3 text-sm space-y-1">
+              <p className="font-medium">Upload complete</p>
+              <p className="text-emerald-600">{bulkResults.filter(r => r.success).length} created successfully</p>
+              {bulkResults.filter(r => !r.success).length > 0 && (
+                <p className="text-destructive">{bulkResults.filter(r => !r.success).length} failed</p>
+              )}
+            </div>
+          )}
+
+          {/* Preview table */}
+          <div className="overflow-auto flex-1 border rounded-lg">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Active</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bulkRows.map((r, i) => {
+                  const result = bulkResults?.find(res => res.email === r.email);
+                  return (
+                    <TableRow key={i} className={cn(
+                      r._errors.length > 0 ? 'bg-destructive/5' : '',
+                      result?.success ? 'bg-emerald-50 dark:bg-emerald-950/20' : '',
+                      result && !result.success ? 'bg-destructive/10' : '',
+                    )}>
+                      <TableCell className="text-xs text-muted-foreground">{r._rowNum}</TableCell>
+                      <TableCell className="text-sm font-medium">{r.name || <span className="text-destructive italic">missing</span>}</TableCell>
+                      <TableCell className="text-sm">{r.email || <span className="text-destructive italic">missing</span>}</TableCell>
+                      <TableCell className="text-sm">{r.phone || '—'}</TableCell>
+                      <TableCell>
+                        <span className={cn('text-xs px-2 py-0.5 rounded-full capitalize',
+                          r.expat_type === 'new' ? 'bg-accent/15 text-accent' : 'bg-muted text-muted-foreground')}>
+                          {r.expat_type}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={cn('text-xs', r.is_active ? 'text-emerald-600' : 'text-muted-foreground')}>
+                          {r.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {result ? (
+                          result.success
+                            ? <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-3.5 h-3.5" /> Created</span>
+                            : <span className="flex items-center gap-1 text-destructive"><XCircle className="w-3.5 h-3.5" /> {result.error}</span>
+                        ) : r._errors.length > 0 ? (
+                          <span className="text-destructive">{r._errors.join(', ')}</span>
+                        ) : (
+                          <span className="text-muted-foreground">Ready</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" onClick={() => setBulkDialogOpen(false)} disabled={bulkUploading}>Cancel</Button>
+            {!bulkResults ? (
+              <Button
+                onClick={handleBulkUpload}
+                disabled={bulkUploading || validCount === 0}
+                className="bg-accent hover:bg-accent/90 text-accent-foreground min-w-32"
+              >
+                {bulkUploading
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading…</>
+                  : `Upload ${validCount} Customer${validCount !== 1 ? 's' : ''}`
+                }
+              </Button>
+            ) : (
+              <Button onClick={() => { setBulkDialogOpen(false); setBulkResults(null); setBulkRows([]); }}
+                className="bg-accent hover:bg-accent/90 text-accent-foreground">
+                Done
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
