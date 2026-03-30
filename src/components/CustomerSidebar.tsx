@@ -23,12 +23,14 @@ export default function CustomerSidebar({ open, onClose, collapsed, setCollapsed
   const sidebarContent = (
     <aside
       className={cn(
-        'h-screen bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 ease-out relative shrink-0',
+        // Use dvh (dynamic viewport height) on mobile so browser chrome is accounted for.
+        // Falls back to 100vh on browsers that don't support dvh.
+        'h-[100dvh] bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 ease-out relative shrink-0',
         collapsed ? 'w-[68px]' : 'w-[220px]'
       )}
     >
       {/* Header */}
-      <div className="h-14 flex items-center px-4 border-b border-sidebar-border justify-between">
+      <div className="h-14 flex-shrink-0 flex items-center px-4 border-b border-sidebar-border justify-between">
         {!collapsed && (
           <div className="flex items-center gap-2.5 animate-fade-in">
             <div className="w-12 h-8 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -55,8 +57,8 @@ export default function CustomerSidebar({ open, onClose, collapsed, setCollapsed
         </button>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-5 px-3 space-y-1.5">
+      {/* Nav — scrollable so it never pushes logout off screen */}
+      <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-1.5">
         {navItems.map(item => (
           <NavLink
             key={item.path}
@@ -79,8 +81,8 @@ export default function CustomerSidebar({ open, onClose, collapsed, setCollapsed
         ))}
       </nav>
 
-      {/* Logout */}
-      <div className="p-3 border-t border-sidebar-border">
+      {/* Logout — flex-shrink-0 keeps it always pinned at the bottom */}
+      <div className="flex-shrink-0 p-3 border-t border-sidebar-border">
         <button
           onClick={logout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 transition-all w-full active:scale-[0.97]"

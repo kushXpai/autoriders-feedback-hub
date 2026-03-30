@@ -27,12 +27,14 @@ export default function AdminSidebar({ open, onClose, collapsed, setCollapsed }:
   const sidebarContent = (
     <aside
       className={cn(
-        'h-screen bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 ease-out relative',
+        // Use dvh (dynamic viewport height) on mobile so browser chrome is accounted for.
+        // Falls back to 100vh on browsers that don't support dvh.
+        'h-[100dvh] bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 ease-out relative',
         collapsed ? 'w-[68px]' : 'w-[240px]'
       )}
     >
       {/* Header */}
-      <div className="h-16 flex items-center px-4 border-b border-sidebar-border">
+      <div className="h-16 flex-shrink-0 flex items-center px-4 border-b border-sidebar-border">
         {!collapsed && (
           <div className="flex items-center gap-2.5 animate-fade-in flex-1 min-w-0">
             <div className="w-12 h-8 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -62,14 +64,14 @@ export default function AdminSidebar({ open, onClose, collapsed, setCollapsed }:
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-4 px-3 space-y-1">
+      {/* Nav — scrollable so it never pushes logout off screen */}
+      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
         {navItems.map(item => (
           <NavLink
             key={item.path}
             to={item.path}
             end={item.path === '/admin'}
-            onClick={onClose} // close drawer on mobile nav
+            onClick={onClose}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
@@ -86,8 +88,8 @@ export default function AdminSidebar({ open, onClose, collapsed, setCollapsed }:
         ))}
       </nav>
 
-      {/* Logout */}
-      <div className="p-3 border-t border-sidebar-border">
+      {/* Logout — flex-shrink-0 keeps it always pinned at the bottom */}
+      <div className="flex-shrink-0 p-3 border-t border-sidebar-border">
         <button
           onClick={logout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 transition-all w-full active:scale-[0.97]"
