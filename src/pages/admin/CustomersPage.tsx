@@ -269,10 +269,16 @@ export default function CustomersPage() {
   // ─── Save (single) ────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!formData.name || !formData.email) {
-      toast({ title: 'Validation', description: 'Name and email are required.', variant: 'destructive' });
+      toast({
+        title: 'Validation',
+        description: 'Name and email are required.',
+        variant: 'destructive'
+      });
       return;
     }
+
     setSaving(true);
+
     try {
       const payload = {
         name: formData.name,
@@ -286,45 +292,134 @@ export default function CustomersPage() {
         expat_type: formData.expat_type,
       };
 
+      console.log('STEP A: Payload prepared:', payload);
+
       if (editingCustomer) {
+        console.log('STEP B: Updating existing customer');
+
         const { error } = await (supabase.from('customers') as any)
-          .update(payload).eq('id', editingCustomer.id);
-        if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-        toast({ title: 'Updated', description: `${formData.name} updated.` });
-      } else {
-        const { data: lastRaw } = await supabase
-          .from('customers').select('employee_id').order('id', { ascending: false }).limit(1).maybeSingle();
-        const lastNum = parseInt(((lastRaw as any)?.employee_id ?? 'EMP-0000').replace('EMP-', ''), 10) || 0;
-        const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
+          .update(payload)
+          .eq('id', editingCustomer.id);
 
-        const { data: { session } } = await supabase.auth.getSession();
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-        let apiRes: Response;
-        try {
-          apiRes = await fetch('/api/create-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-            body: JSON.stringify({ ...payload, employee_id: newEmployeeId }),
-            signal: controller.signal,
+        console.log('STEP C: Update result:', error);
+
+        if (error) {
+          toast({
+            title: 'Error',
+            description: error.message,
+            variant: 'destructive'
           });
-        } finally { clearTimeout(timeout); }
-
-        const result = await apiRes.json();
-        if (!apiRes.ok) {
-          toast({ title: 'Error', description: result.error || 'Failed to create customer.', variant: 'destructive' });
           return;
         }
-        toast({ title: 'Added', description: `${formData.name} added. They can log in with their phone/password.` });
+
+        toast({
+          title: 'Updated',
+          description: `${formData.name} updated.`
+        });
+
+      } else {
+        console.log('STEP D: Creating new customer');
+
+        // Generate employee ID
+        const { data: lastRaw } = await supabase
+          .from('customers')
+          .select('employee_id')
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const lastNum =
+          parseInt(((lastRaw as any)?.employee_id ?? 'EMP-0000').replace('EMP-', ''), 10) || 0;
+
+        const newEmployeeId = `EMP-${String(lastNum + 1).padStart(4, '0')}`;
+
+        console.log('STEP E: Generated employee ID:', newEmployeeId);
+
+        // Get session
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('STEP F: Session:', session);
+
+        if (!session?.access_token) {
+          throw new Error('No auth session found');
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+          console.error('⛔ Request timed out after 15s');
+          controller.abort();
+        }, 15000);
+
+        let apiRes: Response;
+
+        try {
+          console.log('STEP G: Sending request to API');
+
+          apiRes = await fetch('/api/create-user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              ...payload,
+              employee_id: newEmployeeId,
+            }),
+            signal: controller.signal,
+          });
+
+        } catch (err: any) {
+          console.error('STEP H: FETCH ERROR:', err);
+
+          if (err.name === 'AbortError') {
+            throw new Error('Request timed out. Backend is not responding.');
+          }
+
+          throw err;
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        console.log('STEP I: API response status:', apiRes.status);
+
+        let result: any;
+        try {
+          result = await apiRes.json();
+        } catch (e) {
+          console.error('STEP J: Failed to parse JSON');
+          throw new Error('Invalid response from server');
+        }
+
+        console.log('STEP K: API response body:', result);
+
+        if (!apiRes.ok) {
+          throw new Error(result.error || 'Failed to create customer');
+        }
+
+        console.log('STEP L: Customer created successfully');
+
+        toast({
+          title: 'Added',
+          description: `${formData.name} added. They can log in with their phone/password.`,
+        });
       }
+
+      console.log('STEP M: Closing drawer & refreshing');
 
       setDrawerOpen(false);
       await fetchCustomers();
+
     } catch (err: any) {
-      const msg = err?.name === 'AbortError' ? 'Request timed out.' : (err?.message ?? 'Something went wrong.');
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      console.error('FINAL FRONTEND ERROR:', err);
+
+      toast({
+        title: 'Error',
+        description: err?.message || 'Something went wrong.',
+        variant: 'destructive'
+      });
+
     } finally {
       setSaving(false);
+      console.log('STEP Z: Saving state reset');
     }
   };
 
@@ -487,9 +582,9 @@ export default function CustomersPage() {
   const validCount = bulkRows.length - invalidCount;
 
   const statCards = [
-    { label: 'Total',    value: totalCount,    icon: Users,     bg: 'bg-primary/10',     color: 'text-primary' },
-    { label: 'Active',   value: activeCount,   icon: UserCheck, bg: 'bg-emerald-500/10', color: 'text-emerald-600' },
-    { label: 'Inactive', value: inactiveCount, icon: UserX,     bg: 'bg-muted',          color: 'text-muted-foreground' },
+    { label: 'Total', value: totalCount, icon: Users, bg: 'bg-primary/10', color: 'text-primary' },
+    { label: 'Active', value: activeCount, icon: UserCheck, bg: 'bg-emerald-500/10', color: 'text-emerald-600' },
+    { label: 'Inactive', value: inactiveCount, icon: UserX, bg: 'bg-muted', color: 'text-muted-foreground' },
   ];
 
   return (
