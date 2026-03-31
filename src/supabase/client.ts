@@ -14,7 +14,7 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 // Use this when testing on localhost.
 // Comment this out before deploying to Vercel.
 // ============================================================
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
+// export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ============================================================
 // PRODUCTION (with proxy)
@@ -22,14 +22,14 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Requires /supabase proxy route configured in vite.config.ts
 // or your Vercel rewrites.
 // ============================================================
-// export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
-//   global: {
-//     fetch: (url: RequestInfo | URL, options?: RequestInit) => {
-//       const proxied = url.toString().replace(
-//         SUPABASE_URL,
-//         window.location.origin + '/supabase'
-//       );
-//       return fetch(proxied, options);
-//     },
-//   },
-// });
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  global: {
+    fetch: (url: RequestInfo | URL, options?: RequestInit) => {
+      const proxied = url.toString().replace(
+        SUPABASE_URL,
+        window.location.origin + '/supabase'
+      );
+      return fetch(proxied, options);
+    },
+  },
+});
