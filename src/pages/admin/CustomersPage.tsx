@@ -381,16 +381,19 @@ export default function CustomersPage() {
 
         console.log('STEP K: SUCCESS');
 
+        // Add the new customer to state directly instead of re-fetching
+        // to avoid a second Supabase call that could hang.
+        if (result.customer) {
+          setCustomers(prev => [result.customer, ...prev]);
+        }
+
         toast({
           title: 'Added',
           description: `${formData.name} added successfully`,
         });
       }
 
-      console.log('STEP L: Refreshing data');
-
       setDrawerOpen(false);
-      await fetchCustomers();
 
     } catch (err: any) {
       console.error('FINAL ERROR:', err);
