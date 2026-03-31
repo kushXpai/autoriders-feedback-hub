@@ -317,11 +317,15 @@ export default function CustomersPage() {
         const newEmployeeId = `EMP-${Date.now()}`;
         console.log('STEP E: Generated employee ID:', newEmployeeId);
 
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log('STEP F: Session:', session);
+        // getSession() makes a network call which can hang.
+        // Read the token directly from localStorage instead.
+        const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+        const rawSession = storageKey ? JSON.parse(localStorage.getItem(storageKey) ?? '{}') : null;
+        const accessToken = rawSession?.access_token ?? null;
+        console.log('STEP F: Access token found:', !!accessToken);
 
-        if (!session?.access_token) {
-          throw new Error('No auth session found');
+        if (!accessToken) {
+          throw new Error('No auth session found. Please sign out and sign in again.');
         }
 
         const controller = new AbortController();
@@ -339,7 +343,7 @@ export default function CustomersPage() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
+              Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify({
               ...payload,
