@@ -91,6 +91,7 @@ export interface FeedbackAssignment {
   status: FeedbackStatus;
   submitted_at: string | null; // timestamptz
   created_at: string; // timestamptz
+  email_sent: boolean; // true if email was successfully delivered
 }
 
 /** public.feedback_responses */

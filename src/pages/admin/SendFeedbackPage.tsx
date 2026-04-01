@@ -179,13 +179,15 @@ export default function SendFeedbackPage() {
         .filter(c => selectedIds.includes(c.id))
         .map(c => ({ name: c.name, email: c.email, phone: c.phone ?? null }));
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      const rawSession = storageKey ? JSON.parse(localStorage.getItem(storageKey) ?? '{}') : null;
+      const accessToken = rawSession?.access_token ?? null;
 
       const emailRes = await fetch('/api/send-feedback-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           quarterLabel: modalQuarterObj?.label ?? modalQuarter,
@@ -198,6 +200,32 @@ export default function SendFeedbackPage() {
 
       if (emailRes.ok) {
         setEmailResults({ sent: emailData.sent ?? 0, failed: (emailData.total ?? 0) - (emailData.sent ?? 0) });
+
+        // Mark email_sent = true for customers whose email succeeded
+        if (emailData.results && data) {
+          const successEmails = new Set(
+            (emailData.results as { email: string; success: boolean }[])
+              .filter(r => r.success)
+              .map(r => r.email)
+          );
+          const successfulAssignmentIds = (data as FeedbackAssignment[])
+            .filter(a => {
+              const customer = customers.find(c => c.id === a.customer_id);
+              return customer && successEmails.has(customer.email);
+            })
+            .map(a => a.id);
+
+          if (successfulAssignmentIds.length > 0) {
+            await (supabase.from('feedback_assignments') as any)
+              .update({ email_sent: true })
+              .in('id', successfulAssignmentIds);
+
+            setAssignments(prev => prev.map(a =>
+              successfulAssignmentIds.includes(a.id) ? { ...a, email_sent: true } : a
+            ));
+          }
+        }
+
         toast({
           title: 'Forms assigned & emails sent!',
           description: `${rows.length} customer(s) assigned. ${emailData.sent} email(s) delivered for ${modalQuarterObj?.label}.`,
@@ -249,7 +277,8 @@ export default function SendFeedbackPage() {
           [...qAssignments].sort((a, b) => a.created_at > b.created_at ? 1 : -1)[0].created_at
         ).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-        return { quarterId, label, total: qAssignments.length, submitted, newExpats, sentDate, assignments: qAssignments };
+        const emailSent = qAssignments.filter(a => (a as any).email_sent).length;
+        return { quarterId, label, total: qAssignments.length, submitted, newExpats, sentDate, emailSent, assignments: qAssignments };
       });
   }, [assignments, quarters, customers]);
 
@@ -500,6 +529,7 @@ export default function SendFeedbackPage() {
                 rows={[
                   { label: 'Sent to', value: `${card.total} customers` },
                   { label: 'New Expats', value: card.newExpats },
+                  { label: 'Emails Delivered', value: `${card.emailSent} / ${card.total}` },
                   { label: 'Sent on', value: card.sentDate },
                 ]}
                 progress={{ value: card.submitted, max: card.total }}
@@ -537,18 +567,27 @@ export default function SendFeedbackPage() {
                 )}>
                   {a.customer?.expat_type ?? 'existing'}
                 </span>
-                {a.status === 'submitted' ? (
-                  <span className="flex items-center gap-1 text-xs text-emerald-600">
-                    <CheckCircle2 className="w-3 h-3" />
-                    {a.submitted_at
-                      ? new Date(a.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                      : 'Done'}
-                  </span>
-                ) : (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
-                    Pending
-                  </span>
-                )}
+                <div className="flex flex-col items-end gap-1">
+                  {(a as any).email_sent ? (
+                    <span className="flex items-center gap-1 text-xs text-blue-600">
+                      <CheckCircle2 className="w-3 h-3" /> Email sent
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">No email</span>
+                  )}
+                  {a.status === 'submitted' ? (
+                    <span className="flex items-center gap-1 text-xs text-emerald-600">
+                      <CheckCircle2 className="w-3 h-3" />
+                      {a.submitted_at
+                        ? new Date(a.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : 'Done'}
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
+                      Pending
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>

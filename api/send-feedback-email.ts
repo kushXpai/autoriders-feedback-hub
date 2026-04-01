@@ -282,20 +282,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    // ── Step A: Verify caller is admin or superadmin ───────────────────────
+    // ── Step A: Verify caller using service role (avoids proxy/network issues) ──
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'No authorization header' });
 
-    const supabaseClient = createClient(
-      process.env.VITE_SUPABASE_URL!,
-      process.env.VITE_SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: authHeader } } }
+    const supabaseAdmin = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
     if (userError || !user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { data: roleData } = await supabaseClient
+    const { data: roleData } = await supabaseAdmin
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
