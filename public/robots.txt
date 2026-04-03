@@ -11,4 +11,9 @@ User-agent: facebookexternalhit
 Allow: /
 
 User-agent: *
+Disallow: /admin/
+Disallow: /customer/
+Allow: /login
 Allow: /
+
+Sitemap: https://userfeedback.autoriders.in/sitemap.xml
