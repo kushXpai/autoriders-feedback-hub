@@ -608,80 +608,117 @@ export default function SendFeedbackPage() {
 
       {/* ── Detail Popup ── */}
       <Dialog open={!!detailQuarter} onOpenChange={open => !open && setDetailQuarter(null)}>
-        <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{detailLabel} — Recipients</DialogTitle>
-            <DialogDescription>
-              {detailData?.length ?? 0} customer(s) received the feedback form.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto -mx-6 px-6 space-y-1">
-            {detailData?.map(a => (
-              <div
-                key={a.id}
-                className="flex items-center gap-3 py-2.5 px-2 rounded-lg hover:bg-muted/30 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">{a.customer?.name ?? '—'}</p>
-                  <p className="text-xs text-muted-foreground">{a.customer?.email ?? '—'}</p>
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+
+          {/* Header */}
+          <div className="px-6 pt-6 pb-4 border-b border-border">
+            <DialogTitle className="text-base font-semibold text-foreground">{detailLabel} — Recipients</DialogTitle>
+            {detailQuarter && (() => {
+              const submittedCount = assignments.filter(a => a.quarter_id === detailQuarter && a.status === 'submitted').length;
+              const pendingCount = assignments.filter(a => a.quarter_id === detailQuarter && a.status === 'pending').length;
+              const total = submittedCount + pendingCount;
+              return (
+                <div className="mt-3 flex items-center gap-4">
+                  <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full transition-all"
+                      style={{ width: total ? `${(submittedCount / total) * 100}%` : '0%' }}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    <span className="font-semibold text-emerald-600">{submittedCount}</span> of {total} submitted
+                  </span>
                 </div>
-                <span className={cn(
-                  'text-xs px-1.5 py-0.5 rounded capitalize',
-                  a.customer?.expat_type === 'new'
-                    ? 'bg-accent/15 text-accent font-medium'
-                    : 'text-muted-foreground'
-                )}>
-                  {a.customer?.expat_type ?? 'existing'}
-                </span>
-                <div className="flex flex-col items-end gap-1">
-                  {(a as any).email_sent ? (
-                    <span className="flex items-center gap-1 text-xs text-blue-600">
-                      <CheckCircle2 className="w-3 h-3" /> Email sent
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">No email</span>
+              );
+            })()}
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto px-3 py-2">
+            {detailData?.filter(a => a.customer?.name).map(a => {
+              const isSubmitted = a.status === 'submitted';
+              return (
+                <div
+                  key={a.id}
+                  className={cn(
+                    'flex items-center gap-3 py-2.5 px-3 rounded-xl transition-colors',
+                    isSubmitted ? 'hover:bg-emerald-50/60' : 'hover:bg-muted/40'
                   )}
-                  {a.status === 'submitted' ? (
-                    <span className="flex items-center gap-1 text-xs text-emerald-600">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {a.submitted_at
-                        ? new Date(a.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                        : 'Done'}
+                >
+                  {/* Avatar circle */}
+                  <div className={cn(
+                    'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0',
+                    isSubmitted
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-muted text-muted-foreground'
+                  )}>
+                    {a.customer?.name?.charAt(0).toUpperCase() ?? '?'}
+                  </div>
+
+                  {/* Name + email */}
+                  <div className="flex-1 min-w-0">
+                    <p className={cn('text-sm font-medium truncate', isSubmitted ? 'text-foreground' : 'text-foreground/70')}>
+                      {a.customer?.name ?? '—'}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">{a.customer?.email ?? '—'}</p>
+                  </div>
+
+                  {/* Expat badge */}
+                  {a.customer?.expat_type === 'new' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent font-semibold uppercase tracking-wide shrink-0">
+                      New
                     </span>
+                  )}
+
+                  {/* Status */}
+                  {isSubmitted ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      <span className="text-xs font-medium text-emerald-600">
+                        {a.submitted_at
+                          ? new Date(a.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          : 'Done'}
+                      </span>
+                    </div>
                   ) : (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold shrink-0">
                       Pending
                     </span>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          {/* ── Resend Reminder Footer ── */}
+
+          {/* Footer */}
           {detailQuarter && (() => {
             const pendingCount = assignments.filter(
               a => a.quarter_id === detailQuarter && a.status === 'pending'
             ).length;
-            return pendingCount > 0 ? (
-              <div className="border-t pt-4 flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-medium text-amber-600">{pendingCount}</span> customer{pendingCount !== 1 ? 's' : ''} yet to submit
-                </p>
-                <Button
-                  size="sm"
-                  onClick={() => handleResendReminders(detailQuarter)}
-                  disabled={resending}
-                  className="bg-amber-500 hover:bg-amber-600 text-white"
-                >
-                  {resending
-                    ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Sending…</>
-                    : <><BellRing className="w-3 h-3 mr-1.5" />Resend Reminder ({pendingCount})</>
-                  }
-                </Button>
-              </div>
-            ) : (
-              <div className="border-t pt-4 text-center text-xs text-emerald-600 font-medium">
-                ✅ All customers have submitted their feedback
+            return (
+              <div className="px-6 py-4 border-t border-border flex items-center justify-between bg-muted/30">
+                {pendingCount > 0 ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-semibold text-amber-600">{pendingCount}</span> customer{pendingCount !== 1 ? 's' : ''} yet to submit
+                    </p>
+                    <Button
+                      size="sm"
+                      onClick={() => handleResendReminders(detailQuarter)}
+                      disabled={resending}
+                      className="bg-amber-500 hover:bg-amber-600 text-white h-8 text-xs"
+                    >
+                      {resending
+                        ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Sending…</>
+                        : <><BellRing className="w-3 h-3 mr-1.5" />Resend Reminder ({pendingCount})</>
+                      }
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-xs text-emerald-600 font-medium w-full text-center">
+                    ✅ All customers have submitted their feedback
+                  </p>
+                )}
               </div>
             );
           })()}

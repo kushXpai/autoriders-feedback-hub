@@ -276,212 +276,300 @@ function generateReminderEmail(data: {
   email: string;
   phone: string;
 }): string {
+  const today = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Reminder: ${data.quarterLabel} Feedback Form</title>
+  <title>Reminder — ${data.quarterLabel} Feedback Form</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background-color: #f5f7fa;
-      padding: 20px;
-      line-height: 1.6;
-    }
-    .container {
-      max-width: 580px;
-      margin: 0 auto;
-      background: #ffffff;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-    }
-    .header {
-      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-      padding: 36px 30px;
-      text-align: center;
-    }
-    .header h1 {
-      color: #ffffff;
-      font-size: 22px;
-      font-weight: 700;
-      margin: 0;
-      letter-spacing: -0.3px;
-    }
-    .header p {
-      color: rgba(255,255,255,0.85);
-      font-size: 14px;
-      margin-top: 6px;
-    }
-    .body { padding: 36px 30px; }
-    .greeting {
-      font-size: 16px;
-      color: #1e293b;
-      font-weight: 600;
-      margin-bottom: 12px;
-    }
-    .intro {
-      font-size: 14px;
-      color: #475569;
-      margin-bottom: 24px;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      background-color: #f0f0f0;
+      padding: 32px 16px;
+      color: #1a1a1a;
       line-height: 1.7;
     }
-    .highlight-box {
-      background: #fff7ed;
-      border: 1px solid #fed7aa;
-      border-radius: 10px;
-      padding: 16px 20px;
-      margin-bottom: 24px;
-      text-align: center;
+    .wrapper {
+      max-width: 620px;
+      margin: 0 auto;
     }
-    .highlight-box p {
-      font-size: 14px;
-      color: #9a3412;
-      margin: 0;
-    }
-    .highlight-box strong {
-      font-size: 15px;
-      display: block;
-      margin-bottom: 4px;
-      color: #7c2d12;
-    }
-    .info-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 20px 24px;
-      margin-bottom: 24px;
-    }
-    .info-card h3 {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: #94a3b8;
-      font-weight: 600;
-      margin-bottom: 14px;
-    }
-    .info-row {
+
+    /* ── Letterhead ── */
+    .letterhead {
+      background: #ffffff;
+      border-top: 5px solid #1a1a2e;
+      padding: 32px 48px 24px;
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      padding: 10px 0;
-      border-bottom: 1px solid #e2e8f0;
+      align-items: flex-start;
+      border-bottom: 1px solid #d4d4d4;
     }
-    .info-row:last-child { border-bottom: none; }
-    .info-label { font-size: 13px; color: #64748b; font-weight: 500; }
-    .info-value { font-size: 13px; color: #1e293b; font-weight: 600; text-align: right; }
-    .info-value.mono {
-      font-family: 'Courier New', Courier, monospace;
-      background: #f1f5f9;
-      padding: 3px 8px;
-      border-radius: 4px;
+    .org-name {
+      font-family: 'Arial', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: #1a1a2e;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .org-sub {
+      font-family: 'Arial', sans-serif;
+      font-size: 11px;
+      color: #666666;
+      margin-top: 3px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .ref-block {
+      text-align: right;
+      font-family: 'Arial', sans-serif;
+      font-size: 11px;
+      color: #666666;
+      line-height: 1.8;
+    }
+    .ref-block strong {
+      display: block;
+      color: #1a1a2e;
       font-size: 12px;
     }
-    .cta-section { text-align: center; margin: 28px 0; }
+
+    /* ── Body ── */
+    .letter-body {
+      background: #ffffff;
+      padding: 40px 48px;
+    }
+    .date-line {
+      font-family: 'Arial', sans-serif;
+      font-size: 13px;
+      color: #444444;
+      margin-bottom: 28px;
+    }
+    .subject-line {
+      font-family: 'Arial', sans-serif;
+      font-size: 13px;
+      color: #1a1a2e;
+      margin-bottom: 28px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .subject-line span {
+      font-weight: 700;
+      text-decoration: underline;
+    }
+    .salutation {
+      font-size: 15px;
+      margin-bottom: 20px;
+      color: #1a1a1a;
+    }
+    .para {
+      font-size: 14px;
+      color: #333333;
+      margin-bottom: 18px;
+      line-height: 1.8;
+    }
+    .para strong { color: #1a1a2e; }
+
+    /* ── Credentials table ── */
+    .credentials-section {
+      margin: 28px 0;
+      border: 1px solid #cccccc;
+    }
+    .credentials-header {
+      background: #1a1a2e;
+      padding: 10px 20px;
+      font-family: 'Arial', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .credentials-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .credentials-table td {
+      padding: 11px 20px;
+      font-size: 13px;
+      border-bottom: 1px solid #e8e8e8;
+      font-family: 'Arial', sans-serif;
+    }
+    .credentials-table tr:last-child td { border-bottom: none; }
+    .credentials-table .label-col {
+      color: #555555;
+      font-weight: 600;
+      width: 42%;
+    }
+    .credentials-table .value-col {
+      color: #1a1a2e;
+      font-weight: 600;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12.5px;
+    }
+    .credentials-table .link-col {
+      color: #1a4f9f;
+      font-family: 'Arial', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .credentials-table .link-col a { color: #1a4f9f; text-decoration: none; }
+
+    /* ── CTA ── */
+    .cta-wrap { margin: 28px 0; }
     .cta-button {
       display: inline-block;
-      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      background-color: #1a1a2e;
       color: #ffffff !important;
-      padding: 14px 36px;
       text-decoration: none;
-      border-radius: 8px;
-      font-weight: 600;
-      font-size: 15px;
-      box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
-      letter-spacing: 0.2px;
+      font-family: 'Arial', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      padding: 13px 32px;
     }
-    .note {
-      background: #fff7ed;
-      border-left: 3px solid #f97316;
-      padding: 14px 16px;
-      border-radius: 0 8px 8px 0;
-      margin-bottom: 24px;
-    }
-    .note p { font-size: 13px; color: #7c2d12; margin: 0; }
-    .url-fallback { font-size: 12px; color: #94a3b8; text-align: center; margin-top: 16px; }
-    .url-fallback a { color: #ea580c; word-break: break-all; }
-    .divider {
-      height: 1px;
-      background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
+
+    /* ── Confidentiality notice ── */
+    .notice {
+      background: #f7f7f7;
+      border-left: 3px solid #1a1a2e;
+      padding: 12px 16px;
       margin: 24px 0;
+      font-family: 'Arial', sans-serif;
+      font-size: 12px;
+      color: #444444;
+      line-height: 1.6;
     }
-    .footer {
-      background: #f8fafc;
-      padding: 24px 30px;
+    .notice strong { color: #1a1a2e; }
+
+    .closing { font-size: 14px; color: #333333; margin-bottom: 6px; }
+    .signature-name {
+      font-family: 'Arial', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-top: 20px;
+    }
+    .signature-title {
+      font-family: 'Arial', sans-serif;
+      font-size: 12px;
+      color: #666666;
+      margin-top: 2px;
+    }
+
+    /* ── Footer ── */
+    .letter-footer {
+      background: #1a1a2e;
+      padding: 16px 48px;
+      font-family: 'Arial', sans-serif;
+      font-size: 11px;
+      color: #aaaacc;
       text-align: center;
-      border-top: 1px solid #e2e8f0;
+      line-height: 1.8;
     }
-    .footer .brand { font-size: 13px; font-weight: 600; color: #ea580c; margin-bottom: 6px; }
-    .footer p { font-size: 12px; color: #94a3b8; margin: 3px 0; }
+    .letter-footer a { color: #aaaacc; text-decoration: none; }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="wrapper">
 
-    <div class="header">
-      <h1>⏰ Reminder: ${data.quarterLabel} Feedback Form</h1>
-      <p>A gentle nudge — we haven't heard from you yet</p>
-    </div>
-
-    <div class="body">
-      <p class="greeting">Dear ${data.customerName},</p>
-      <p class="intro">
-        We noticed that your feedback form for <strong>${data.quarterLabel}</strong> is still
-        pending. We completely understand that things get busy, so we wanted to send you a
-        friendly reminder. Your response is very important to us and takes only a few minutes
-        to complete.
-      </p>
-
-      <div class="highlight-box">
-        <strong>⏳ Your feedback is still awaited</strong>
-        <p>Filling in this form helps us improve our service quality directly for you.</p>
+    <!-- Letterhead -->
+    <div class="letterhead">
+      <div>
+        <div class="org-name">AutoRiders</div>
+        <div class="org-sub">Car Rental Services</div>
       </div>
-
-      <div class="info-card">
-        <h3>Your Login Credentials</h3>
-        <div class="info-row">
-          <span class="info-label">Login URL</span>
-          <span class="info-value"><a href="${data.appUrl}" style="color: #ea580c;">${data.appUrl}</a></span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Username&nbsp;(Email)</span>
-          <span class="info-value mono">${data.email}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Password</span>
-          <span class="info-value mono">${data.phone || 'Your mobile number'}</span>
-        </div>
-      </div>
-
-      <div class="cta-section">
-        <a href="${data.appUrl}" class="cta-button">
-          Fill Feedback Form Now →
-        </a>
-      </div>
-
-      <p class="url-fallback">
-        If the button doesn't work, copy and paste this link into your browser:<br />
-        <a href="${data.appUrl}">${data.appUrl}</a>
-      </p>
-
-      <div class="divider"></div>
-
-      <div class="note">
-        <p>
-          ⚠️ <strong>Already submitted?</strong> If you have already filled in your feedback,
-          please disregard this reminder. We apologise for any inconvenience.
-          Thank you for your time and continued trust in us.
-        </p>
+      <div class="ref-block">
+        <strong>OFFICIAL CORRESPONDENCE</strong>
+        Ref: CRS/FB/${data.quarterLabel.replace(/\s/g, '')}/REM<br />
+        Date: ${today}
       </div>
     </div>
 
-    <div class="footer">
-      <p class="brand">Car Rental Feedback System</p>
-      <p>This is an automated reminder. Please do not reply to this email.</p>
-      <p>© ${new Date().getFullYear()} All rights reserved.</p>
+    <!-- Letter body -->
+    <div class="letter-body">
+
+      <p class="date-line">${today}</p>
+
+      <p class="subject-line">
+        <span>Subject: Reminder — Pending Feedback Submission for ${data.quarterLabel}</span>
+      </p>
+
+      <p class="salutation">Dear ${data.customerName},</p>
+
+      <p class="para">
+        We refer to our earlier communication regarding the submission of your feedback form
+        for the period <strong>${data.quarterLabel}</strong>. As per our records, your
+        response is yet to be received.
+      </p>
+
+      <p class="para">
+        We request you to kindly take a few minutes to complete and submit the feedback form
+        at the earliest convenience. Your evaluation is an integral part of our service
+        improvement process, and we value your assessment greatly.
+      </p>
+
+      <p class="para">
+        For your reference, your login credentials to access the feedback portal are provided below:
+      </p>
+
+      <!-- Credentials -->
+      <div class="credentials-section">
+        <div class="credentials-header">Portal Access Credentials</div>
+        <table class="credentials-table">
+          <tr>
+            <td class="label-col">Portal URL</td>
+            <td class="link-col"><a href="${data.appUrl}">${data.appUrl}</a></td>
+          </tr>
+          <tr>
+            <td class="label-col">Username (Email)</td>
+            <td class="value-col">${data.email}</td>
+          </tr>
+          <tr>
+            <td class="label-col">Password</td>
+            <td class="value-col">${data.phone || 'Your registered mobile number'}</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- CTA -->
+      <div class="cta-wrap">
+        <a href="${data.appUrl}" class="cta-button">Submit Feedback Now</a>
+      </div>
+
+      <p class="para" style="font-size:12px; color:#888888;">
+        If the above button does not work, please copy and paste the following link
+        into your web browser: <a href="${data.appUrl}" style="color:#1a4f9f;">${data.appUrl}</a>
+      </p>
+
+      <!-- Notice -->
+      <div class="notice">
+        <strong>Note:</strong> Your password is your registered mobile number.
+        Please keep your login credentials strictly confidential and do not share them
+        with any third party. If you have already submitted your feedback, kindly
+        disregard this communication.
+      </div>
+
+      <p class="para">
+        We appreciate your continued patronage and look forward to receiving your valued
+        feedback. Should you require any assistance, please do not hesitate to reach out
+        to us.
+      </p>
+
+      <p class="closing">Yours sincerely,</p>
+      <p class="signature-name">Customer Relations Team</p>
+      <p class="signature-title">AutoRiders — Car Rental Services</p>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="letter-footer">
+      This is a system-generated official communication. Please do not reply to this email directly. &nbsp;|&nbsp;
+      &copy; ${new Date().getFullYear()} AutoRiders. All rights reserved.
     </div>
 
   </div>
@@ -566,7 +654,7 @@ export async function reminderHandler(req: VercelRequest, res: VercelResponse) {
         await transporter.sendMail({
           from: `Car Rental Feedback <${process.env.EMAIL_USER}>`,
           to: customer.email,
-          subject: `⏰ Reminder: Please Fill Your ${quarterLabel} Feedback Form`,
+          subject: `Reminder: Pending Feedback Submission — ${quarterLabel} | AutoRiders`,
           html,
         });
 
