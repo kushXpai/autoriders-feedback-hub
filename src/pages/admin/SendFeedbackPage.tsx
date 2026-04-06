@@ -1,6 +1,6 @@
 // src/pages/admin/SendFeedbackPage.tsx
 import { useState, useEffect, useMemo } from 'react';
-import { Send, CheckCircle2, ChevronLeft, Search, Loader2, CalendarCheck } from 'lucide-react';
+import { Send, CheckCircle2, ChevronLeft, Search, Loader2, CalendarCheck, BellRing } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -249,6 +249,72 @@ export default function SendFeedbackPage() {
 
     setModalOpen(false);
     setSending(false);
+  };
+
+  // ─── Resend reminder state ────────────────────────────────────────────────
+  const [resending, setResending] = useState(false);
+
+  // ─── Resend reminder to all pending customers for a quarter ──────────────
+  const handleResendReminders = async (quarterId: string) => {
+    const pendingAssignments = assignments.filter(
+      a => a.quarter_id === quarterId && a.status === 'pending'
+    );
+
+    if (pendingAssignments.length === 0) {
+      toast({ title: 'No pending customers', description: 'All customers have already submitted their feedback.' });
+      return;
+    }
+
+    setResending(true);
+
+    try {
+      const pendingCustomers = pendingAssignments
+        .map(a => customers.find(c => c.id === a.customer_id))
+        .filter(Boolean)
+        .map(c => ({ name: c!.name, email: c!.email, phone: c!.phone ?? null }));
+
+      const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      const rawSession = storageKey ? JSON.parse(localStorage.getItem(storageKey) ?? '{}') : null;
+      const accessToken = rawSession?.access_token ?? null;
+
+      const quarterLabel = quarters.find(q => q.id === quarterId)?.label ?? quarterId;
+
+      const emailRes = await fetch('/api/send-reminder-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          quarterLabel,
+          appUrl: window.location.origin,
+          customers: pendingCustomers,
+        }),
+      });
+
+      const emailData = await emailRes.json();
+
+      if (emailRes.ok) {
+        toast({
+          title: 'Reminders sent!',
+          description: `${emailData.sent} reminder(s) sent to pending customers for ${quarterLabel}.`,
+        });
+      } else {
+        toast({
+          title: 'Failed to send reminders',
+          description: emailData.error ?? 'Could not send reminder emails.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Error sending reminders',
+        description: err.message ?? 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
+    }
+
+    setResending(false);
   };
 
   // ─── Quarter cards ────────────────────────────────────────────────────────
@@ -591,6 +657,34 @@ export default function SendFeedbackPage() {
               </div>
             ))}
           </div>
+          {/* ── Resend Reminder Footer ── */}
+          {detailQuarter && (() => {
+            const pendingCount = assignments.filter(
+              a => a.quarter_id === detailQuarter && a.status === 'pending'
+            ).length;
+            return pendingCount > 0 ? (
+              <div className="border-t pt-4 flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-amber-600">{pendingCount}</span> customer{pendingCount !== 1 ? 's' : ''} yet to submit
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() => handleResendReminders(detailQuarter)}
+                  disabled={resending}
+                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                >
+                  {resending
+                    ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Sending…</>
+                    : <><BellRing className="w-3 h-3 mr-1.5" />Resend Reminder ({pendingCount})</>
+                  }
+                </Button>
+              </div>
+            ) : (
+              <div className="border-t pt-4 text-center text-xs text-emerald-600 font-medium">
+                ✅ All customers have submitted their feedback
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
