@@ -1,0 +1,1 @@
+export { reminderHandler as default } from './send-feedback-email';
