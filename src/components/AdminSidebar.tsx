@@ -13,10 +13,10 @@ type AppRole = 'superadmin' | 'admin' | 'manager' | 'user' | 'vendor_admin' | 'c
 
 const ALL_NAV_ITEMS = [
   { label: 'Dashboard',     icon: LayoutDashboard,   path: '/admin',               roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
-  { label: 'Customers',     icon: Users,              path: '/admin/customers',     roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
+  { label: 'Customers',     icon: Users,              path: '/admin/customers',     roles: ['superadmin', 'admin', 'manager'] },
   { label: 'Members',       icon: UsersRound,         path: '/admin/members',       roles: ['superadmin', 'admin'] },
-  { label: 'Send Feedback', icon: Send,               path: '/admin/send-feedback', roles: ['superadmin', 'admin', 'manager', 'user'] },
-  { label: 'Feedback',      icon: MessageSquareText,  path: '/admin/feedback',      roles: ['superadmin', 'admin', 'manager', 'vendor_admin'] },
+  { label: 'Send Feedback', icon: Send,               path: '/admin/send-feedback', roles: ['superadmin', 'admin'] },
+  { label: 'Feedback',      icon: MessageSquareText,  path: '/admin/feedback',      roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
   { label: 'Reports',       icon: BarChart3,          path: '/admin/reports',       roles: ['superadmin', 'admin', 'manager', 'vendor_admin'] },
   { label: 'Profile',       icon: UserCircle,         path: '/admin/profile',       roles: ['superadmin', 'admin', 'manager', 'user', 'vendor_admin'] },
 ];
