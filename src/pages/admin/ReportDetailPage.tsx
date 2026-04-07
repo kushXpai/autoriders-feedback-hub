@@ -23,23 +23,23 @@ const sectionKeys: QuestionSection[] = [
 
 const sectionLabels: Record<QuestionSection, string> = {
   service_initiation: 'Service Initiation',
-  service_delivery:   'Service Delivery',
-  driver_quality:     'Driver Quality',
-  overall:            'Overall Experience',
+  service_delivery: 'Service Delivery',
+  driver_quality: 'Driver Quality',
+  overall: 'Overall Experience',
 };
 
 const sectionAppliesTo: Record<QuestionSection, string> = {
   service_initiation: 'New expats only',
-  service_delivery:   'All respondents',
-  driver_quality:     'All respondents',
-  overall:            'All respondents',
+  service_delivery: 'All respondents',
+  driver_quality: 'All respondents',
+  overall: 'All respondents',
 };
 
 const sectionColors: Record<QuestionSection, { bar: string; bg: string; text: string; ring: string }> = {
-  service_initiation: { bar: '#6366f1', bg: 'bg-indigo-500/10',  text: 'text-indigo-600',  ring: 'ring-indigo-500/30' },
-  service_delivery:   { bar: '#0ea5e9', bg: 'bg-sky-500/10',     text: 'text-sky-600',     ring: 'ring-sky-500/30' },
-  driver_quality:     { bar: '#10b981', bg: 'bg-emerald-500/10', text: 'text-emerald-600', ring: 'ring-emerald-500/30' },
-  overall:            { bar: '#f59e0b', bg: 'bg-amber-500/10',   text: 'text-amber-600',   ring: 'ring-amber-500/30' },
+  service_initiation: { bar: '#6366f1', bg: 'bg-indigo-500/10', text: 'text-indigo-600', ring: 'ring-indigo-500/30' },
+  service_delivery: { bar: '#0ea5e9', bg: 'bg-sky-500/10', text: 'text-sky-600', ring: 'ring-sky-500/30' },
+  driver_quality: { bar: '#10b981', bg: 'bg-emerald-500/10', text: 'text-emerald-600', ring: 'ring-emerald-500/30' },
+  overall: { bar: '#f59e0b', bg: 'bg-amber-500/10', text: 'text-amber-600', ring: 'ring-amber-500/30' },
 };
 
 const kpiTarget = 80;
@@ -55,21 +55,21 @@ function getScoreColor(score: number) {
 
 function getOutcomeLabel(outcome: QuarterOutcome | string): string {
   switch (outcome) {
-    case 'incentive':    return 'Incentive';
-    case 'on_target':    return 'On Target';
+    case 'incentive': return 'Incentive';
+    case 'on_target': return 'On Target';
     case 'below_target': return 'Below Target';
-    case 'penalty':      return 'Penalty';
-    default:             return outcome;
+    case 'penalty': return 'Penalty';
+    default: return outcome;
   }
 }
 
 function getOutcomeBadgeClasses(outcome: QuarterOutcome | string): string {
   switch (outcome) {
-    case 'incentive':    return 'bg-emerald-500/15 text-emerald-600';
-    case 'on_target':    return 'bg-blue-500/15 text-blue-600';
+    case 'incentive': return 'bg-emerald-500/15 text-emerald-600';
+    case 'on_target': return 'bg-blue-500/15 text-blue-600';
     case 'below_target': return 'bg-amber-500/15 text-amber-600';
-    case 'penalty':      return 'bg-red-500/15 text-red-600';
-    default:             return 'bg-muted text-muted-foreground';
+    case 'penalty': return 'bg-red-500/15 text-red-600';
+    default: return 'bg-muted text-muted-foreground';
   }
 }
 
@@ -77,11 +77,11 @@ function getOutcomeBadgeClasses(outcome: QuarterOutcome | string): string {
 
 /** Thin arc / donut for a single percentage */
 function DonutChart({ pct, color, size = 72 }: { pct: number; color: string; size?: number }) {
-  const r     = (size - 10) / 2;
-  const circ  = 2 * Math.PI * r;
-  const dash  = (pct / 100) * circ;
-  const cx    = size / 2;
-  const cy    = size / 2;
+  const r = (size - 10) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = (pct / 100) * circ;
+  const cx = size / 2;
+  const cy = size / 2;
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg]">
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="currentColor" strokeWidth={6} className="text-muted/40" />
@@ -98,11 +98,11 @@ function DonutChart({ pct, color, size = 72 }: { pct: number; color: string; siz
 
 /** Small ring chart for per-question cards */
 function MiniRing({ pct, color, size = 52 }: { pct: number; color: string; size?: number }) {
-  const r    = (size - 8) / 2;
+  const r = (size - 8) / 2;
   const circ = 2 * Math.PI * r;
   const dash = (pct / 100) * circ;
-  const cx   = size / 2;
-  const cy   = size / 2;
+  const cx = size / 2;
+  const cy = size / 2;
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg] shrink-0">
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="currentColor" strokeWidth={5} className="text-muted/40" />
@@ -119,14 +119,14 @@ function MiniRing({ pct, color, size = 52 }: { pct: number; color: string; size?
 
 /** Simple SVG radar / spider chart for 4 sections */
 function RadarChart({ data }: { data: { label: string; pct: number; color: string }[] }) {
-  const size   = 200;
-  const cx     = size / 2;
-  const cy     = size / 2;
+  const size = 200;
+  const cx = size / 2;
+  const cy = size / 2;
   const radius = 80;
-  const n      = data.length;
+  const n = data.length;
 
-  const angle  = (i: number) => (2 * Math.PI * i) / n - Math.PI / 2;
-  const point  = (i: number, r: number) => ({
+  const angle = (i: number) => (2 * Math.PI * i) / n - Math.PI / 2;
+  const point = (i: number, r: number) => ({
     x: cx + r * Math.cos(angle(i)),
     y: cy + r * Math.sin(angle(i)),
   });
@@ -188,17 +188,17 @@ function RadarChart({ data }: { data: { label: string; pct: number; color: strin
 /** Score distribution stacked bar (counts of 1/2/3/4) */
 function ScoreDistBar({ scores }: { scores: number[] }) {
   const counts = [1, 2, 3, 4].map(s => scores.filter(x => x === s).length);
-  const total  = scores.length || 1;
+  const total = scores.length || 1;
   const colors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
   const labels = ['1', '2', '3', '4'];
-  let offset   = 0;
+  let offset = 0;
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex h-4 rounded-full overflow-hidden w-full">
         {counts.map((c, i) => {
           const pct = (c / total) * 100;
-          const el  = (
+          const el = (
             <div
               key={i}
               className="h-full transition-all duration-700"
@@ -226,34 +226,34 @@ function ScoreDistBar({ scores }: { scores: number[] }) {
 
 interface Respondent {
   assignment: FeedbackAssignment;
-  customer:   Customer;
-  isNew:      boolean;
-  responses:  FeedbackResponse[];
+  customer: Customer;
+  isNew: boolean;
+  responses: FeedbackResponse[];
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ReportDetailPage() {
   const { quarterId } = useParams();
-  const navigate      = useNavigate();
+  const navigate = useNavigate();
 
   // Collapsible state for each section — all open by default
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    responses:    true,
+    responses: true,
     sectionTotals: true,
-    avgScores:    true,
-    kpiOutcomes:  true,
-    summary:      true,
-    questionRef:  false,
+    avgScores: true,
+    kpiOutcomes: true,
+    summary: true,
+    questionRef: false,
   });
 
   const toggle = (key: string) =>
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
 
-  const [loading, setLoading]         = useState(true);
-  const [quarter, setQuarter]         = useState<Quarter | null>(null);
-  const [report, setReport]           = useState<QuarterReport | null>(null);
-  const [questions, setQuestions]     = useState<Question[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [quarter, setQuarter] = useState<Quarter | null>(null);
+  const [report, setReport] = useState<QuarterReport | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [respondents, setRespondents] = useState<Respondent[]>([]);
 
   useEffect(() => {
@@ -273,13 +273,13 @@ export default function ReportDetailPage() {
       ]);
 
       setQuarter(quarterData as Quarter ?? null);
-      setReport(reportData  as QuarterReport ?? null);
+      setReport(reportData as QuarterReport ?? null);
       setQuestions((questionsData ?? []) as Question[]);
 
       const submitted = (assignmentsData ?? []) as FeedbackAssignment[];
       if (submitted.length === 0) { setLoading(false); return; }
 
-      const customerIds   = [...new Set(submitted.map(a => a.customer_id))];
+      const customerIds = [...new Set(submitted.map(a => a.customer_id))];
       const assignmentIds = submitted.map(a => a.id);
 
       const [{ data: customersData }, { data: responsesData }] = await Promise.all([
@@ -288,8 +288,8 @@ export default function ReportDetailPage() {
       ]);
 
       const built: Respondent[] = submitted.map(a => {
-        const customer  = ((customersData ?? []) as Customer[]).find(c => c.id === a.customer_id)!;
-        const isNew     = customer?.expat_type === 'new';
+        const customer = ((customersData ?? []) as Customer[]).find(c => c.id === a.customer_id)!;
+        const isNew = customer?.expat_type === 'new';
         const responses = ((responsesData ?? []) as FeedbackResponse[]).filter(r => r.assignment_id === a.id);
         return { assignment: a, customer, isNew, responses };
       });
@@ -302,11 +302,11 @@ export default function ReportDetailPage() {
   // ─── Derived ──────────────────────────────────────────────────────────────
   const sectionData = useMemo(() => {
     return sectionKeys.map(key => {
-      const sectionQuestions      = questions.filter(q => q.section === key);
-      const qCount                = sectionQuestions.length;
-      const isNewOnly             = key === 'service_initiation';
+      const sectionQuestions = questions.filter(q => q.section === key);
+      const qCount = sectionQuestions.length;
+      const isNewOnly = key === 'service_initiation';
       const applicableRespondents = isNewOnly ? respondents.filter(r => r.isNew) : respondents;
-      const respCount             = applicableRespondents.length;
+      const respCount = applicableRespondents.length;
 
       let totalScore = 0;
       applicableRespondents.forEach(r => {
@@ -317,9 +317,9 @@ export default function ReportDetailPage() {
       });
 
       const maxPossible = respCount * qCount * 4;
-      const divisor     = respCount * qCount;
-      const avg         = divisor > 0 ? totalScore / divisor : 0;
-      const pct         = (avg / 4) * 100;
+      const divisor = respCount * qCount;
+      const avg = divisor > 0 ? totalScore / divisor : 0;
+      const pct = (avg / 4) * 100;
 
       // Per-question breakdown
       const questionStats = sectionQuestions.map(q => {
@@ -327,8 +327,8 @@ export default function ReportDetailPage() {
           .map(r => r.responses.find(res => res.question_id === q.id)?.score)
           .filter((s): s is 1 | 2 | 3 | 4 => s !== undefined);
         const qTotal = scores.reduce((a, b) => a + b, 0);
-        const qAvg   = scores.length > 0 ? qTotal / scores.length : 0;
-        const qPct   = (qAvg / 4) * 100;
+        const qAvg = scores.length > 0 ? qTotal / scores.length : 0;
+        const qPct = (qAvg / 4) * 100;
         return { question: q, scores, avg: qAvg, pct: qPct };
       });
 
@@ -342,7 +342,7 @@ export default function ReportDetailPage() {
   }, [questions, respondents]);
 
   const strongest = useMemo(() => [...sectionData].sort((a, b) => b.pct - a.pct)[0], [sectionData]);
-  const weakest   = useMemo(() => [...sectionData].sort((a, b) => a.pct - b.pct)[0], [sectionData]);
+  const weakest = useMemo(() => [...sectionData].sort((a, b) => a.pct - b.pct)[0], [sectionData]);
 
   // All scores across all respondents (for score dist)
   const allScores = useMemo(() =>
@@ -411,8 +411,8 @@ export default function ReportDetailPage() {
         <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
           <p className="text-xs text-muted-foreground">Weakest Section</p>
           <p className="text-lg font-bold text-foreground mt-1 leading-tight">{weakest?.label ?? '—'}</p>
-          <p className="text-xs text-red-500 font-medium mt-0.5 flex items-center gap-1">
-            <TrendingDown className="w-3 h-3" />{weakest?.pct.toFixed(1)}%
+          <p className="text-xs text-muted-foreground font-medium mt-0.5">
+            {weakest?.pct.toFixed(1)}%
           </p>
         </div>
       </div>
@@ -426,7 +426,7 @@ export default function ReportDetailPage() {
           <RadarChart
             data={sectionData.map(s => ({
               label: s.label,
-              pct:   s.pct,
+              pct: s.pct,
               color: s.colors.bar,
             }))}
           />
@@ -448,7 +448,7 @@ export default function ReportDetailPage() {
           <div className="mt-auto space-y-2.5">
             {[4, 3, 2, 1].map(score => {
               const count = allScores.filter(s => s === score).length;
-              const pct   = allScores.length > 0 ? (count / allScores.length) * 100 : 0;
+              const pct = allScores.length > 0 ? (count / allScores.length) * 100 : 0;
               const labels = ['', 'Needs Improvement', 'Fair', 'Good', 'Excellence'];
               const colors = ['', '#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
               return (
@@ -525,7 +525,7 @@ export default function ReportDetailPage() {
                 </TableHeader>
                 <TableBody>
                   {sectionData.map(s => {
-                    const met  = s.pct >= kpiTarget;
+                    const met = s.pct >= kpiTarget;
                     const badge = s.pct >= 85 ? 'incentive' : s.pct >= 80 ? 'on_target' : s.pct >= 70 ? 'below_target' : 'penalty';
                     return (
                       <TableRow key={s.key}>
@@ -589,9 +589,9 @@ export default function ReportDetailPage() {
                     <span className={cn(
                       'text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide hidden sm:block',
                       s.pct >= 85 ? 'bg-emerald-500/15 text-emerald-600'
-                      : s.pct >= 80 ? 'bg-blue-500/15 text-blue-600'
-                      : s.pct >= 70 ? 'bg-amber-500/15 text-amber-600'
-                      : 'bg-red-500/15 text-red-600'
+                        : s.pct >= 80 ? 'bg-blue-500/15 text-blue-600'
+                          : s.pct >= 70 ? 'bg-amber-500/15 text-amber-600'
+                            : 'bg-red-500/15 text-red-600'
                     )}>
                       {s.pct >= 85 ? 'Incentive' : s.pct >= 80 ? 'On Target' : s.pct >= 70 ? 'Below Target' : 'Penalty'}
                     </span>
@@ -611,7 +611,7 @@ export default function ReportDetailPage() {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                     {s.questionStats.map(qs => {
-                      const counts     = [1, 2, 3, 4].map(sc => qs.scores.filter(x => x === sc).length);
+                      const counts = [1, 2, 3, 4].map(sc => qs.scores.filter(x => x === sc).length);
                       const scoreColors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
                       return (
                         <div
