@@ -111,9 +111,9 @@ export default function ProfilePage() {
             <p className="text-sm text-muted-foreground">{user?.email}</p>
             <span className={cn(
               'inline-block mt-1 text-[11px] font-medium px-2 py-0.5 rounded-full capitalize',
-              user?.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-accent/10 text-accent'
+              (['customer', 'vendor_admin'] as string[]).includes(user?.role ?? '') ? 'bg-accent/10 text-accent' : 'bg-primary/10 text-primary'
             )}>
-              {user?.role}
+              {(['customer', 'vendor_admin'] as string[]).includes(user?.role ?? '') ? 'Client' : user?.role?.replace('_', ' ')}
             </span>
           </div>
         </div>
