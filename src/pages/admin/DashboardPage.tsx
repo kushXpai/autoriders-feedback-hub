@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Users, CheckCircle2, TrendingUp, Award, ArrowUpRight, ArrowDownRight, Clock } from 'lucide-react';
 import { supabase } from '@/supabase/client';
-import type { DashboardMetric, QuarterReport, Quarter, FeedbackAssignment, Customer } from '@/types/database.types';
+import type { QuarterReport, Quarter, FeedbackAssignment, Customer } from '@/types/database.types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
@@ -12,6 +12,20 @@ import {
 
 type TrendMetric = 'satisfaction' | 'si' | 'sd' | 'dq';
 
+// Derived metrics shape (replaces missing dashboard_metrics table)
+interface DerivedMetrics {
+  total_active_customers: number;
+  current_quarter_responded: number;
+  current_quarter_total: number;
+  overall_satisfaction: number;
+  incentive_applies: boolean;
+  penalty_applies: boolean;
+  si_pct: number; si_avg: number;
+  sd_pct: number; sd_avg: number;
+  dq_pct: number; dq_avg: number;
+  os_pct: number; os_avg: number;
+}
+
 interface RecentItem {
   id: number;
   customerName: string;
@@ -19,112 +33,81 @@ interface RecentItem {
   submittedAt: string;
 }
 
-function getDefaultQuarter(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  if (month <= 3) return `q4-${year - 1}`;
-  if (month <= 6) return `q1-${year}`;
-  if (month <= 9) return `q2-${year}`;
-  return `q3-${year}`;
-}
-
 export default function DashboardPage() {
   const [quarters, setQuarters] = useState<Quarter[]>([]);
-  const [selectedQuarter, setSelectedQuarter] = useState(getDefaultQuarter);
-  const [metrics, setMetrics] = useState<DashboardMetric | null>(null);
-  const [prevMetrics, setPrevMetrics] = useState<DashboardMetric | null>(null);
+  const [selectedQuarter, setSelectedQuarter] = useState<string>('');
   const [reports, setReports] = useState<QuarterReport[]>([]);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>('satisfaction');
   const [loadingMetrics, setLoadingMetrics] = useState(true);
 
-  // Load all quarters once
+  // assignments per quarter: { quarterId -> { total, submitted } }
+  const [assignmentCounts, setAssignmentCounts] = useState<Record<string, { total: number; submitted: number }>>({});
+  const [totalActiveCustomers, setTotalActiveCustomers] = useState(0);
+
+  // Load quarters, reports, assignment counts, customers in one go
   useEffect(() => {
-    supabase
-      .from('quarters')
-      .select('*')
-      .order('year', { ascending: true })
-      .then(({ data }) => {
-        if (data) setQuarters(data);
+    const fetchAll = async () => {
+      setLoadingMetrics(true);
+      const [
+        { data: quartersData },
+        { data: reportsData },
+        { data: assignmentsData },
+        { data: customersData },
+      ] = await Promise.all([
+        supabase.from('quarters').select('*').order('year', { ascending: true }).order('quarter_number', { ascending: true }),
+        supabase.from('quarter_reports').select('*'),
+        supabase.from('feedback_assignments').select('id, customer_id, quarter_id, status, submitted_at'),
+        supabase.from('customers').select('id, name').eq('is_active', true),
+      ]);
+
+      const qs: Quarter[] = quartersData ?? [];
+      const reps: QuarterReport[] = reportsData ?? [];
+      const assigns: (FeedbackAssignment & { submitted_at: string })[] = (assignmentsData ?? []) as any;
+      const customers: Pick<Customer, 'id' | 'name'>[] = (customersData ?? []) as any;
+
+      setQuarters(qs);
+      setReports(reps);
+      setTotalActiveCustomers(customers.length);
+
+      // Build assignment count map
+      const counts: Record<string, { total: number; submitted: number }> = {};
+      assigns.forEach(a => {
+        if (!counts[a.quarter_id]) counts[a.quarter_id] = { total: 0, submitted: 0 };
+        counts[a.quarter_id].total += 1;
+        if (a.status === 'submitted') counts[a.quarter_id].submitted += 1;
       });
-  }, []);
+      setAssignmentCounts(counts);
 
-  // Load all quarter reports for trend chart
-  useEffect(() => {
-    supabase
-      .from('quarter_reports')
-      .select('*')
-      .then(({ data }) => {
-        if (data) setReports(data);
-      });
-  }, []);
-
-  // Load dashboard metrics for selected quarter + previous quarter
-  useEffect(() => {
-    setLoadingMetrics(true);
-    const fetchMetrics = async () => {
-      const { data } = await supabase
-        .from('dashboard_metrics')
-        .select('*')
-        .eq('quarter_id', selectedQuarter)
-        .single();
-      setMetrics(data ?? null);
-
-      // Find previous quarter
-      const orderedIds = quarters
-        .slice()
-        .sort((a, b) => a.year * 10 + a.quarter_number - (b.year * 10 + b.quarter_number))
-        .map(q => q.id);
-      const idx = orderedIds.indexOf(selectedQuarter);
-      if (idx > 0) {
-        const { data: prev } = await supabase
-          .from('dashboard_metrics')
-          .select('*')
-          .eq('quarter_id', orderedIds[idx - 1])
-          .single();
-        setPrevMetrics(prev ?? null);
-      } else {
-        setPrevMetrics(null);
+      // Default selected quarter: most recent quarter that has a report, else most recent
+      if (qs.length > 0) {
+        const sorted = [...qs].sort((a, b) => b.year * 10 + b.quarter_number - (a.year * 10 + a.quarter_number));
+        const withReport = sorted.find(q => reps.some(r => r.quarter_id === q.id));
+        setSelectedQuarter((withReport ?? sorted[0]).id);
       }
 
-      setLoadingMetrics(false);
-    };
-    if (quarters.length > 0) fetchMetrics();
-  }, [selectedQuarter, quarters]);
+      // Recent submissions
+      const submitted = assigns
+        .filter(a => a.status === 'submitted' && a.submitted_at)
+        .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
+        .slice(0, 6);
 
-  // Load recent submitted assignments
-  useEffect(() => {
-    const fetchRecent = async () => {
-      const { data: assignments } = await supabase
-        .from('feedback_assignments')
-        .select('id, customer_id, quarter_id, submitted_at')
-        .eq('status', 'submitted')
-        .order('submitted_at', { ascending: false })
-        .limit(6) as { data: (FeedbackAssignment & { submitted_at: string })[] | null };
-
-      if (!assignments?.length) return;
-
-      const customerIds = [...new Set(assignments.map(a => a.customer_id))];
-      const { data: customers } = await supabase
-        .from('customers')
-        .select('id, name')
-        .in('id', customerIds) as { data: Pick<Customer, 'id' | 'name'>[] | null };
-
-      const customerMap = Object.fromEntries((customers ?? []).map(c => [c.id, c.name]));
-      const quarterMap = Object.fromEntries(quarters.map(q => [q.id, q.label]));
+      const customerMap = Object.fromEntries(customers.map(c => [c.id, c.name]));
+      const quarterMap = Object.fromEntries(qs.map(q => [q.id, q.label]));
 
       setRecentItems(
-        assignments.map(a => ({
+        submitted.map(a => ({
           id: a.id,
           customerName: customerMap[a.customer_id] ?? 'Unknown',
           quarter: quarterMap[a.quarter_id] ?? a.quarter_id,
           submittedAt: a.submitted_at,
         }))
       );
+
+      setLoadingMetrics(false);
     };
-    if (quarters.length > 0) fetchRecent();
-  }, [quarters]);
+    fetchAll();
+  }, []);
 
   const orderedQuarters = useMemo(
     () =>
@@ -137,6 +120,50 @@ export default function DashboardPage() {
   const availableQuarters = useMemo(() => [...orderedQuarters].reverse(), [orderedQuarters]);
   const quarterLabel = quarters.find(q => q.id === selectedQuarter)?.label ?? selectedQuarter;
 
+  // Derive metrics from quarter_reports + assignmentCounts
+  const metrics: DerivedMetrics | null = useMemo(() => {
+    if (!selectedQuarter) return null;
+    const report = reports.find(r => r.quarter_id === selectedQuarter);
+    if (!report) return null;
+    const counts = assignmentCounts[selectedQuarter] ?? { total: 0, submitted: 0 };
+    const overallPct = Number(report.overall_pct);
+    return {
+      total_active_customers: totalActiveCustomers,
+      current_quarter_responded: counts.submitted,
+      current_quarter_total: counts.total,
+      overall_satisfaction: overallPct,
+      incentive_applies: overallPct >= 85,
+      penalty_applies: overallPct < 70,
+      si_pct: Number(report.si_pct), si_avg: Number(report.si_avg),
+      sd_pct: Number(report.sd_pct), sd_avg: Number(report.sd_avg),
+      dq_pct: Number(report.dq_pct), dq_avg: Number(report.dq_avg),
+      os_pct: Number(report.os_pct), os_avg: Number(report.os_avg),
+    };
+  }, [selectedQuarter, reports, assignmentCounts, totalActiveCustomers]);
+
+  // Previous quarter metrics for deltas
+  const prevMetrics: DerivedMetrics | null = useMemo(() => {
+    const idx = orderedQuarters.findIndex(q => q.id === selectedQuarter);
+    if (idx <= 0) return null;
+    const prevQ = orderedQuarters[idx - 1];
+    const report = reports.find(r => r.quarter_id === prevQ.id);
+    if (!report) return null;
+    const counts = assignmentCounts[prevQ.id] ?? { total: 0, submitted: 0 };
+    const overallPct = Number(report.overall_pct);
+    return {
+      total_active_customers: totalActiveCustomers,
+      current_quarter_responded: counts.submitted,
+      current_quarter_total: counts.total,
+      overall_satisfaction: overallPct,
+      incentive_applies: overallPct >= 85,
+      penalty_applies: overallPct < 70,
+      si_pct: Number(report.si_pct), si_avg: Number(report.si_avg),
+      sd_pct: Number(report.sd_pct), sd_avg: Number(report.sd_avg),
+      dq_pct: Number(report.dq_pct), dq_avg: Number(report.dq_avg),
+      os_pct: Number(report.os_pct), os_avg: Number(report.os_avg),
+    };
+  }, [selectedQuarter, orderedQuarters, reports, assignmentCounts, totalActiveCustomers]);
+
   function delta(current: number, previous: number | null | undefined) {
     if (previous == null) return null;
     const diff = current - previous;
@@ -144,7 +171,7 @@ export default function DashboardPage() {
     return { value: `${diff > 0 ? '+' : ''}${Number.isInteger(diff) ? diff : diff.toFixed(1)}`, positive: diff > 0 };
   }
 
-  const responseRatePct = (m: DashboardMetric) =>
+  const responseRatePct = (m: DerivedMetrics) =>
     m.current_quarter_total > 0
       ? (m.current_quarter_responded / m.current_quarter_total) * 100
       : 0;
@@ -152,7 +179,7 @@ export default function DashboardPage() {
   const metricCards = metrics
     ? [
         {
-          label: 'Active Customers',
+          label: 'Active Clients',
           value: metrics.total_active_customers,
           icon: Users,
           color: 'text-primary',
@@ -236,7 +263,7 @@ export default function DashboardPage() {
     return `${Math.floor(hrs / 24)}d ago`;
   }
 
-  if (loadingMetrics && !metrics) {
+  if (loadingMetrics) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
         Loading dashboard…
@@ -303,7 +330,7 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border p-8 text-center text-sm text-muted-foreground">
-          No metrics available for {quarterLabel}.
+          No report generated yet for {quarterLabel}. Go to <strong>Reports</strong> to generate one.
         </div>
       )}
 
