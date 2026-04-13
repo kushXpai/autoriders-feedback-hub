@@ -530,7 +530,7 @@ export default function MembersPage() {
                       <td className="px-5 py-3.5 relative">
                         <button
                           onClick={() => setOpenMenuId(prev => prev === member.user_id ? null : member.user_id)}
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover:opacity-100"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors "
                         >
                           <MoreHorizontal className="w-4 h-4" />
                         </button>

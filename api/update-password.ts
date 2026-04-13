@@ -35,7 +35,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .single();
 
     if (roleError || !roleData) return res.status(403).json({ error: 'Unable to verify role' });
-    if (roleData.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    const ALLOWED_ROLES = ['superadmin', 'admin', 'manager'];
+    if (!ALLOWED_ROLES.includes(roleData.role)) return res.status(403).json({ error: 'Insufficient permissions' });
 
     // ── Validate body ─────────────────────────────────────────────────────────
     const { userId, newPassword } = req.body;
