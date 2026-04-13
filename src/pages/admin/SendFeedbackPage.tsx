@@ -44,6 +44,9 @@ export default function SendFeedbackPage() {
   // ─── Detail popup state ───────────────────────────────────────────────────
   const [detailQuarter, setDetailQuarter] = useState<string | null>(null);
 
+  // ─── Customer search (inside send modal) ─────────────────────────────────
+  const [customerSearch, setCustomerSearch] = useState('');
+
   // ─── Fetch all data ───────────────────────────────────────────────────────
   const fetchData = async () => {
     setLoading(true);
@@ -116,7 +119,13 @@ export default function SendFeedbackPage() {
   );
 
   const selectableCustomers = customers.filter(c => !alreadySentIds.includes(c.id));
-  const allSelected = selectableCustomers.length > 0 && selectableCustomers.every(c => selectedIds.includes(c.id));
+  // Filtered by search
+  const filteredSelectableCustomers = useMemo(() => {
+    if (!customerSearch.trim()) return selectableCustomers;
+    const s = customerSearch.toLowerCase();
+    return selectableCustomers.filter(c => c.name.toLowerCase().includes(s) || c.email.toLowerCase().includes(s));
+  }, [selectableCustomers, customerSearch]);
+  const allSelected = filteredSelectableCustomers.length > 0 && filteredSelectableCustomers.every(c => selectedIds.includes(c.id));
 
   // Quarters in ascending order for the send modal (Q1 2025 → Q4 2050)
   const filteredQuarters = useMemo(() => {
@@ -132,13 +141,14 @@ export default function SendFeedbackPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const toggleAll = () =>
-    setSelectedIds(allSelected ? [] : selectableCustomers.map(c => c.id));
+    setSelectedIds(allSelected ? [] : filteredSelectableCustomers.map(c => c.id));
 
   const openModal = () => {
     setModalStep('quarter');
     setModalQuarter('');
     setSelectedIds([]);
     setQuarterSearch('');
+    setCustomerSearch('');
     setModalOpen(true);
   };
 
@@ -253,12 +263,19 @@ export default function SendFeedbackPage() {
 
   // ─── Resend reminder state ────────────────────────────────────────────────
   const [resending, setResending] = useState(false);
+  const [resendSelectedIds, setResendSelectedIds] = useState<number[]>([]);
 
-  // ─── Resend reminder to all pending customers for a quarter ──────────────
-  const handleResendReminders = async (quarterId: string) => {
-    const pendingAssignments = assignments.filter(
+  const toggleResendId = (id: number) =>
+    setResendSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  // ─── Resend reminder to selected or all pending customers for a quarter ────
+  const handleResendReminders = async (quarterId: string, specificIds?: number[]) => {
+    const allPending = assignments.filter(
       a => a.quarter_id === quarterId && a.status === 'pending'
     );
+    const pendingAssignments = specificIds && specificIds.length > 0
+      ? allPending.filter(a => specificIds.includes(a.customer_id))
+      : allPending;
 
     if (pendingAssignments.length === 0) {
       toast({ title: 'No pending customers', description: 'All customers have already submitted their feedback.' });
@@ -510,51 +527,80 @@ export default function SendFeedbackPage() {
                   </div>
                 </div>
               </DialogHeader>
+              {/* Search bar */}
+              <div className="relative mb-2">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Search customers…"
+                  value={customerSearch}
+                  onChange={e => setCustomerSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
               <div className="flex-1 overflow-y-auto -mx-6 px-6">
-                <div className="flex items-center gap-2 py-2 border-b border-border mb-1">
-                  <Checkbox
-                    checked={allSelected}
-                    onCheckedChange={toggleAll}
-                    disabled={selectableCustomers.length === 0}
-                  />
-                  <span className="text-sm font-medium">Select All</span>
+                <div className="flex items-center justify-between py-2 border-b border-border mb-1">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={toggleAll}
+                      disabled={filteredSelectableCustomers.length === 0}
+                    />
+                    <span className="text-sm font-medium">Select All</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(selectableCustomers.map(c => c.id))}
+                    className="text-xs text-accent hover:underline font-medium"
+                  >
+                    Send All ({selectableCustomers.length})
+                  </button>
                 </div>
                 <div className="space-y-0.5">
-                  {customers.map(c => {
-                    const alreadySent = alreadySentIds.includes(c.id);
-                    return (
-                      <label
-                        key={c.id}
-                        className={cn(
-                          'flex items-center gap-3 py-2.5 px-2 rounded-lg transition-colors',
-                          alreadySent ? 'opacity-50' : 'hover:bg-muted/40 cursor-pointer'
-                        )}
-                      >
-                        <Checkbox
-                          checked={alreadySent || selectedIds.includes(c.id)}
-                          onCheckedChange={() => !alreadySent && toggleId(c.id)}
-                          disabled={alreadySent}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground">{c.name}</p>
-                          <p className="text-xs text-muted-foreground">{c.email}</p>
-                        </div>
-                        <span className={cn(
-                          'text-xs px-1.5 py-0.5 rounded capitalize',
-                          c.expat_type === 'new'
-                            ? 'bg-accent/15 text-accent font-medium'
-                            : 'text-muted-foreground'
-                        )}>
-                          {c.expat_type}
-                        </span>
-                        {alreadySent && (
-                          <span className="flex items-center gap-1 text-xs text-emerald-600">
-                            <CheckCircle2 className="w-3 h-3" /> Sent
-                          </span>
-                        )}
-                      </label>
-                    );
-                  })}
+                  {filteredSelectableCustomers.length === 0 && !customerSearch && (
+                    <p className="text-sm text-muted-foreground text-center py-6">All customers already have forms for this quarter.</p>
+                  )}
+                  {filteredSelectableCustomers.length === 0 && customerSearch && (
+                    <p className="text-sm text-muted-foreground text-center py-6">No customers match your search.</p>
+                  )}
+                  {filteredSelectableCustomers.map(c => (
+                    <label
+                      key={c.id}
+                      className="flex items-center gap-3 py-2.5 px-2 rounded-lg hover:bg-muted/40 cursor-pointer transition-colors"
+                    >
+                      <Checkbox
+                        checked={selectedIds.includes(c.id)}
+                        onCheckedChange={() => toggleId(c.id)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">{c.email}</p>
+                      </div>
+                      <span className={cn(
+                        'text-xs px-1.5 py-0.5 rounded capitalize',
+                        c.expat_type === 'new'
+                          ? 'bg-accent/15 text-accent font-medium'
+                          : 'text-muted-foreground'
+                      )}>
+                        {c.expat_type}
+                      </span>
+                    </label>
+                  ))}
+                  {/* Already-sent customers shown greyed out at bottom */}
+                  {customers.filter(c => alreadySentIds.includes(c.id)).map(c => (
+                    <label
+                      key={c.id}
+                      className="flex items-center gap-3 py-2.5 px-2 rounded-lg opacity-40 cursor-not-allowed"
+                    >
+                      <Checkbox checked disabled />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">{c.email}</p>
+                      </div>
+                      <span className="flex items-center gap-1 text-xs text-emerald-600">
+                        <CheckCircle2 className="w-3 h-3" /> Sent
+                      </span>
+                    </label>
+                  ))}
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
@@ -566,7 +612,7 @@ export default function SendFeedbackPage() {
                 >
                   {sending
                     ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending…</>
-                    : `Send to ${selectedIds.length} Customer${selectedIds.length !== 1 ? 's' : ''}`
+                    : `Send to ${selectedIds.length} Client${selectedIds.length !== 1 ? 's' : ''}`
                   }
                 </Button>
               </div>
@@ -607,7 +653,7 @@ export default function SendFeedbackPage() {
       </div>
 
       {/* ── Detail Popup ── */}
-      <Dialog open={!!detailQuarter} onOpenChange={open => !open && setDetailQuarter(null)}>
+      <Dialog open={!!detailQuarter} onOpenChange={open => { if (!open) { setDetailQuarter(null); setResendSelectedIds([]); } }}>
         <DialogContent className="max-w-lg max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
 
           {/* Header */}
@@ -637,14 +683,30 @@ export default function SendFeedbackPage() {
           <div className="flex-1 overflow-y-auto px-3 py-2">
             {detailData?.filter(a => a.customer?.name).map(a => {
               const isSubmitted = a.status === 'submitted';
+              const customerId = a.customer_id;
               return (
                 <div
                   key={a.id}
                   className={cn(
                     'flex items-center gap-3 py-2.5 px-3 rounded-xl transition-colors',
-                    isSubmitted ? 'hover:bg-emerald-50/60' : 'hover:bg-muted/40'
+                    isSubmitted ? 'hover:bg-emerald-50/60' : 'hover:bg-muted/40 cursor-pointer'
                   )}
+                  onClick={() => !isSubmitted && toggleResendId(customerId)}
                 >
+                  {/* Checkbox for pending, checkmark for submitted */}
+                  {isSubmitted ? (
+                    <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    </div>
+                  ) : (
+                    <Checkbox
+                      checked={resendSelectedIds.includes(customerId)}
+                      onCheckedChange={() => toggleResendId(customerId)}
+                      onClick={e => e.stopPropagation()}
+                      className="shrink-0"
+                    />
+                  )}
+
                   {/* Avatar circle */}
                   <div className={cn(
                     'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0',
@@ -672,14 +734,11 @@ export default function SendFeedbackPage() {
 
                   {/* Status */}
                   {isSubmitted ? (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span className="text-xs font-medium text-emerald-600">
-                        {a.submitted_at
-                          ? new Date(a.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                          : 'Done'}
-                      </span>
-                    </div>
+                    <span className="text-xs font-medium text-emerald-600 shrink-0">
+                      {a.submitted_at
+                        ? new Date(a.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : 'Done'}
+                    </span>
                   ) : (
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold shrink-0">
                       Pending
@@ -692,31 +751,63 @@ export default function SendFeedbackPage() {
 
           {/* Footer */}
           {detailQuarter && (() => {
-            const pendingCount = assignments.filter(
+            const pendingAssignments = assignments.filter(
               a => a.quarter_id === detailQuarter && a.status === 'pending'
-            ).length;
+            );
+            const pendingCount = pendingAssignments.length;
+            const pendingCustomerIds = pendingAssignments.map(a => a.customer_id);
+            const selectedPending = resendSelectedIds.filter(id => pendingCustomerIds.includes(id));
+            const sendCount = selectedPending.length > 0 ? selectedPending.length : pendingCount;
             return (
-              <div className="px-6 py-4 border-t border-border flex items-center justify-between bg-muted/30">
+              <div className="px-6 py-4 border-t border-border bg-muted/30 space-y-2">
                 {pendingCount > 0 ? (
                   <>
-                    <p className="text-xs text-muted-foreground">
-                      <span className="font-semibold text-amber-600">{pendingCount}</span> customer{pendingCount !== 1 ? 's' : ''} yet to submit
-                    </p>
-                    <Button
-                      size="sm"
-                      onClick={() => handleResendReminders(detailQuarter)}
-                      disabled={resending}
-                      className="bg-amber-500 hover:bg-amber-600 text-white h-8 text-xs"
-                    >
-                      {resending
-                        ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Sending…</>
-                        : <><BellRing className="w-3 h-3 mr-1.5" />Resend Reminder ({pendingCount})</>
-                      }
-                    </Button>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-semibold text-amber-600">{pendingCount}</span> client{pendingCount !== 1 ? 's' : ''} yet to submit
+                        {selectedPending.length > 0 && (
+                          <span className="ml-1 text-accent font-semibold">· {selectedPending.length} selected</span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {selectedPending.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setResendSelectedIds([])}
+                            className="text-xs text-muted-foreground hover:text-foreground underline"
+                          >
+                            Clear
+                          </button>
+                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            handleResendReminders(detailQuarter, selectedPending.length > 0 ? selectedPending : undefined);
+                            setResendSelectedIds([]);
+                          }}
+                          disabled={resending}
+                          className="bg-amber-500 hover:bg-amber-600 text-white h-8 text-xs"
+                        >
+                          {resending
+                            ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Sending…</>
+                            : <><BellRing className="w-3 h-3 mr-1.5" />
+                                {selectedPending.length > 0
+                                  ? `Resend to ${selectedPending.length} Selected`
+                                  : `Resend All (${pendingCount})`}
+                              </>
+                          }
+                        </Button>
+                      </div>
+                    </div>
+                    {pendingCount > 1 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Tick individual clients above to send only to them, or use Resend All.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <p className="text-xs text-emerald-600 font-medium w-full text-center">
-                    ✅ All customers have submitted their feedback
+                    ✅ All clients have submitted their feedback
                   </p>
                 )}
               </div>
