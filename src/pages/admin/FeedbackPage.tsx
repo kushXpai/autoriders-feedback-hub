@@ -206,6 +206,19 @@ export default function FeedbackPage() {
           responses: responseMap[a.id] ?? [],
           comment: commentMap[a.id] ?? null,
         };
+      })
+      .sort((a, b) => {
+        // Submitted entries first, then pending
+        if (a.status === 'submitted' && b.status !== 'submitted') return -1;
+        if (a.status !== 'submitted' && b.status === 'submitted') return 1;
+        // Within submitted: latest submitted_at first
+        if (a.status === 'submitted' && b.status === 'submitted') {
+          const aTime = a.submitted_at ? new Date(a.submitted_at).getTime() : 0;
+          const bTime = b.submitted_at ? new Date(b.submitted_at).getTime() : 0;
+          return bTime - aTime;
+        }
+        // Within pending: latest created_at first
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   }, [selectedQuarter, statusFilter, assignments, customers, responseMap, commentMap]);
 

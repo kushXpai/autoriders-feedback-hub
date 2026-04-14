@@ -265,6 +265,9 @@ export default function SendFeedbackPage() {
   const [resending, setResending] = useState(false);
   const [resendSelectedIds, setResendSelectedIds] = useState<number[]>([]);
 
+  // ─── Detail popup search ──────────────────────────────────────────────────
+  const [detailSearch, setDetailSearch] = useState('');
+
   const toggleResendId = (id: number) =>
     setResendSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
@@ -653,7 +656,7 @@ export default function SendFeedbackPage() {
       </div>
 
       {/* ── Detail Popup ── */}
-      <Dialog open={!!detailQuarter} onOpenChange={open => { if (!open) { setDetailQuarter(null); setResendSelectedIds([]); } }}>
+      <Dialog open={!!detailQuarter} onOpenChange={open => { if (!open) { setDetailQuarter(null); setResendSelectedIds([]); setDetailSearch(''); } }}>
         <DialogContent className="max-w-lg max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
 
           {/* Header */}
@@ -679,9 +682,30 @@ export default function SendFeedbackPage() {
             })()}
           </div>
 
+          {/* Search bar */}
+          <div className="px-6 pb-3 border-b border-border">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Search recipients…"
+                value={detailSearch}
+                onChange={e => setDetailSearch(e.target.value)}
+                className="pl-9 h-8 text-sm"
+              />
+            </div>
+          </div>
+
           {/* List */}
           <div className="flex-1 overflow-y-auto px-3 py-2">
-            {detailData?.filter(a => a.customer?.name).map(a => {
+            {detailData?.filter(a => {
+              if (!a.customer?.name) return false;
+              if (!detailSearch.trim()) return true;
+              const s = detailSearch.toLowerCase();
+              return (
+                a.customer.name.toLowerCase().includes(s) ||
+                (a.customer.email ?? '').toLowerCase().includes(s)
+              );
+            }).map(a => {
               const isSubmitted = a.status === 'submitted';
               const customerId = a.customer_id;
               return (
