@@ -104,7 +104,9 @@ const C = {
 
 type RGB = [number, number, number];
 
-function hex2rgb(hex: string): RGB {
+function hex2rgb(hex: string | RGB): RGB {
+  // If already an RGB array, pass through unchanged
+  if (Array.isArray(hex)) return hex as RGB;
   const h = hex.replace('#', '');
   return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
 }
@@ -196,10 +198,10 @@ function buildPDF(payload: SendReportEmailRequest): Promise<Buffer> {
 
     // ── Low-level drawing helpers ────────────────────────────────────────────
 
-    const setFill   = (hex: string) => doc.fillColor(hex2rgb(hex));
-    const setStroke = (hex: string) => doc.strokeColor(hex2rgb(hex));
+    const setFill   = (hex: string | RGB) => doc.fillColor(hex2rgb(hex));
+    const setStroke = (hex: string | RGB) => doc.strokeColor(hex2rgb(hex));
 
-    function rect(x:number, y:number, w:number, h:number, fillHex?:string, strokeHex?:string, r=0) {
+    function rect(x:number, y:number, w:number, h:number, fillHex?: string | RGB, strokeHex?: string | RGB, r=0) {
       if (fillHex)   setFill(fillHex);
       if (strokeHex) setStroke(strokeHex);
       if (r > 0) doc.roundedRect(x,y,w,h,r);
@@ -253,7 +255,7 @@ function buildPDF(payload: SendReportEmailRequest): Promise<Buffer> {
       let qx = tableX + nameW + typeW;
       sectionGroups.forEach(g => {
         const bw = g.qs.length * qW;
-        rect(qx, y, bw, 14, tintRgb(sectionColor(g.key), 0.88) as any);
+        rect(qx, y, bw, 14, tintRgb(sectionColor(g.key), 0.88));
         const sc = sectionColor(g.key);
         doc.fontSize(5.5).font('Helvetica-Bold').fillColor(hex2rgb(sc))
            .text(g.label.split(' ')[0], qx+2, y+4, {lineBreak:false, width:bw-4, ellipsis:true});
@@ -579,7 +581,7 @@ function buildPDF(payload: SendReportEmailRequest): Promise<Buffer> {
 
       const sc = sectionColor(g.key);
       // Section band
-      rect(M, qy, CW, 20, tintRgb(sc, 0.9) as any);
+      rect(M, qy, CW, 20, tintRgb(sc, 0.9));
       rect(M, qy, 4,  20, sc); // left accent
       doc.fontSize(8.5).font('Helvetica-Bold').fillColor(hex2rgb(sc))
          .text(g.label.toUpperCase(), M+12, qy+6, {lineBreak:false});

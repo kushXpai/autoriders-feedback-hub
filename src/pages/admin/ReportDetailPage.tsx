@@ -282,7 +282,7 @@ export default function ReportDetailPage() {
         const isNew = customer?.expat_type === 'new';
         const responses = ((responsesData ?? []) as FeedbackResponse[]).filter(r => r.assignment_id === a.id);
         return { assignment: a, customer, isNew, responses };
-      });
+      }).sort((a, b) => a.customer.name.localeCompare(b.customer.name));
 
       setRespondents(built);
       setLoading(false);
@@ -365,7 +365,9 @@ export default function ReportDetailPage() {
           appliesTo: sectionAppliesTo[s.key as QuestionSection],
         })),
       },
-      responses: respondents.map(r => ({
+      responses: [...respondents]
+        .sort((a, b) => a.customer.name.localeCompare(b.customer.name))
+        .map(r => ({
         customerName: r.customer.name,
         isNew:        r.isNew,
         answers:      Object.fromEntries(
