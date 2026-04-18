@@ -1,12 +1,13 @@
 // src/pages/admin/ReportDetailPage.tsx
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, Loader2, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Loader2, TrendingUp, TrendingDown, Send } from 'lucide-react';
 import { useMemo, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { supabase } from '@/supabase/client';
 import { cn } from '@/lib/utils';
+import SendReportModal from '@/components/SendReportModal';
 import type {
   Quarter, QuarterReport, QuarterOutcome, Customer, Question,
   FeedbackAssignment, FeedbackResponse, QuestionSection,
@@ -256,6 +257,9 @@ export default function ReportDetailPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [respondents, setRespondents] = useState<Respondent[]>([]);
 
+  // ── Send Report modal state ────────────────────────────────────────────────
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+
   useEffect(() => {
     if (!quarterId) return;
     (async () => {
@@ -373,11 +377,22 @@ export default function ReportDetailPage() {
           </Button>
           <h1 className="text-xl font-semibold text-foreground">{quarter.label} — Report</h1>
           <span className={cn(
-            'text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide ml-auto',
+            'text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide',
             getOutcomeBadgeClasses(report.outcome)
           )}>
             {getOutcomeLabel(report.outcome)}
           </span>
+
+          {/* ── Send Report button ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto shrink-0"
+            onClick={() => setSendModalOpen(true)}
+          >
+            <Send className="w-3.5 h-3.5 mr-1.5" />
+            Send Report
+          </Button>
         </div>
       </div>
 
@@ -766,6 +781,18 @@ export default function ReportDetailPage() {
           </CollapsibleContent>
         </div>
       </Collapsible>
+
+      {/* ── Send Report Modal ── */}
+      {report && quarter && (
+        <SendReportModal
+          open={sendModalOpen}
+          onClose={() => setSendModalOpen(false)}
+          quarterLabel={quarter.label}
+          report={report}
+          questions={questions}
+          respondents={respondents}
+        />
+      )}
 
     </div>
   );
