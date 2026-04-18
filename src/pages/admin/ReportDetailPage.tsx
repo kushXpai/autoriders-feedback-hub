@@ -76,7 +76,6 @@ function getOutcomeBadgeClasses(outcome: QuarterOutcome | string): string {
 
 // ─── Mini SVG Charts ──────────────────────────────────────────────────────────
 
-/** Thin arc / donut for a single percentage */
 function DonutChart({ pct, color, size = 72 }: { pct: number; color: string; size?: number }) {
   const r = (size - 10) / 2;
   const circ = 2 * Math.PI * r;
@@ -97,7 +96,6 @@ function DonutChart({ pct, color, size = 72 }: { pct: number; color: string; siz
   );
 }
 
-/** Small ring chart for per-question cards */
 function MiniRing({ pct, color, size = 52 }: { pct: number; color: string; size?: number }) {
   const r = (size - 8) / 2;
   const circ = 2 * Math.PI * r;
@@ -118,7 +116,6 @@ function MiniRing({ pct, color, size = 52 }: { pct: number; color: string; size?
   );
 }
 
-/** Simple SVG radar / spider chart for 4 sections */
 function RadarChart({ data }: { data: { label: string; pct: number; color: string }[] }) {
   const size = 200;
   const cx = size / 2;
@@ -143,7 +140,6 @@ function RadarChart({ data }: { data: { label: string; pct: number; color: strin
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {/* Grid rings */}
       {gridLevels.map(lvl => {
         const pts = Array.from({ length: n }, (_, i) => {
           const p = point(i, (lvl / 100) * radius);
@@ -154,12 +150,10 @@ function RadarChart({ data }: { data: { label: string; pct: number; color: strin
             stroke="currentColor" strokeWidth={0.5} className="text-border" />
         );
       })}
-      {/* Spokes */}
       {data.map((_, i) => {
         const p = point(i, radius);
         return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="currentColor" strokeWidth={0.5} className="text-border" />;
       })}
-      {/* Data polygon */}
       <polygon
         points={polygonPoints}
         fill="rgba(99,102,241,0.15)"
@@ -167,12 +161,10 @@ function RadarChart({ data }: { data: { label: string; pct: number; color: strin
         strokeWidth={2}
         strokeLinejoin="round"
       />
-      {/* Data points */}
       {data.map((d, i) => {
         const p = point(i, (d.pct / 100) * radius);
         return <circle key={i} cx={p.x} cy={p.y} r={4} fill={d.color} stroke="white" strokeWidth={1.5} />;
       })}
-      {/* Labels */}
       {data.map((d, i) => {
         const p = point(i, radius + 16);
         return (
@@ -186,20 +178,18 @@ function RadarChart({ data }: { data: { label: string; pct: number; color: strin
   );
 }
 
-/** Score distribution stacked bar (counts of 1/2/3/4) */
 function ScoreDistBar({ scores }: { scores: number[] }) {
   const counts = [1, 2, 3, 4].map(s => scores.filter(x => x === s).length);
   const total = scores.length || 1;
   const colors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
   const labels = ['1', '2', '3', '4'];
-  let offset = 0;
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex h-4 rounded-full overflow-hidden w-full">
         {counts.map((c, i) => {
           const pct = (c / total) * 100;
-          const el = (
+          return (
             <div
               key={i}
               className="h-full transition-all duration-700"
@@ -207,8 +197,6 @@ function ScoreDistBar({ scores }: { scores: number[] }) {
               title={`Score ${labels[i]}: ${c}`}
             />
           );
-          offset += pct;
-          return el;
         })}
       </div>
       <div className="flex gap-2.5 flex-wrap">
@@ -238,7 +226,6 @@ export default function ReportDetailPage() {
   const { quarterId } = useParams();
   const navigate = useNavigate();
 
-  // Collapsible state for each section — all open by default
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     responses: true,
     sectionTotals: true,
@@ -257,7 +244,6 @@ export default function ReportDetailPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [respondents, setRespondents] = useState<Respondent[]>([]);
 
-  // ── Send Report modal state ────────────────────────────────────────────────
   const [sendModalOpen, setSendModalOpen] = useState(false);
 
   useEffect(() => {
@@ -325,7 +311,6 @@ export default function ReportDetailPage() {
       const avg = divisor > 0 ? totalScore / divisor : 0;
       const pct = (avg / 4) * 100;
 
-      // Per-question breakdown
       const questionStats = sectionQuestions.map(q => {
         const scores = applicableRespondents
           .map(r => r.responses.find(res => res.question_id === q.id)?.score)
@@ -348,11 +333,106 @@ export default function ReportDetailPage() {
   const strongest = useMemo(() => [...sectionData].sort((a, b) => b.pct - a.pct)[0], [sectionData]);
   const weakest = useMemo(() => [...sectionData].sort((a, b) => a.pct - b.pct)[0], [sectionData]);
 
-  // All scores across all respondents (for score dist)
   const allScores = useMemo(() =>
     respondents.flatMap(r => r.responses.map(res => res.score)),
     [respondents]
   );
+
+  // ─── Send handler — builds the payload and calls the API ──────────────────
+  const handleSendReport = async (recipients: string[]) => {
+    const { data: { session } } = await (supabase as any).auth.getSession();
+    if (!session?.access_token) {
+      throw new Error('You are not authenticated. Please log in and try again.');
+    }
+
+    // Build payload from existing page state
+    const overallPct = report ? Number(report.overall_pct) : 0;
+    const outcomeLabel = report ? getOutcomeLabel(report.outcome) : '';
+
+    const payload = {
+      recipients,
+      overview: {
+        quarterLabel:     quarter!.label,
+        outcome:          outcomeLabel,
+        totalRespondents: report!.total_respondents,
+        totalAssigned:    report!.total_assigned,
+        newExpatCount:    respondents.filter(r => r.isNew).length,
+        overallPct,
+        sections: sectionData.map(s => ({
+          label:     s.label,
+          avg:       s.avg,
+          pct:       s.pct,
+          appliesTo: sectionAppliesTo[s.key as QuestionSection],
+        })),
+      },
+      responses: respondents.map(r => ({
+        customerName: r.customer.name,
+        isNew:        r.isNew,
+        answers:      Object.fromEntries(
+          questions.map(q => {
+            const resp = r.responses.find(res => res.question_id === q.id);
+            return [`Q${q.question_number}`, resp ? resp.score : null];
+          })
+        ),
+      })),
+      questions: questions.map(q => ({
+        number:  q.question_number,
+        text:    q.text,
+        section: q.section,
+      })),
+      kpiRows: sectionData.map(s => ({
+        section: s.label,
+        avg:     s.avg,
+        pct:     s.pct,
+        target:  kpiTarget,
+        outcome: s.pct >= 85 ? 'Incentive' : s.pct >= 80 ? 'On Target' : s.pct >= 70 ? 'Below Target' : 'Penalty',
+      })),
+    };
+
+    // Client-side 25s timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25_000);
+
+    let response: Response;
+    try {
+      response = await fetch('/api/send-report-email', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body:   JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (fetchErr: any) {
+      if (fetchErr.name === 'AbortError') {
+        throw new Error('The request timed out. The server may be unreachable — please try again.');
+      }
+      throw new Error(`Network error: ${fetchErr.message}`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    let body: any;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error(`Unexpected server response (HTTP ${response.status}).`);
+    }
+
+    if (!response.ok) {
+      throw new Error(body?.detail || body?.error || `Server error (HTTP ${response.status})`);
+    }
+
+    // 207 = partial success
+    if (response.status === 207) {
+      const failed = (body.results as any[]).filter(r => !r.success);
+      const failedList = failed.map(r => `${r.email}: ${r.error}`).join('; ');
+      throw new Error(`Sent to ${body.sent}/${body.total} recipients. Failed: ${failedList}`);
+    }
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -365,7 +445,6 @@ export default function ReportDetailPage() {
     return <div className="p-8 text-muted-foreground">Report not found.</div>;
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 animate-fade-in-up">
 
@@ -383,7 +462,6 @@ export default function ReportDetailPage() {
             {getOutcomeLabel(report.outcome)}
           </span>
 
-          {/* ── Send Report button ── */}
           <Button
             size="sm"
             variant="outline"
@@ -435,7 +513,6 @@ export default function ReportDetailPage() {
       {/* ── VISUAL OVERVIEW: Radar + Score Dist + Section bars ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {/* Radar chart */}
         <div className="bg-card rounded-xl border border-border p-5 shadow-sm flex flex-col items-center gap-3">
           <p className="text-sm font-semibold text-foreground self-start">Section Overview</p>
           <RadarChart
@@ -456,7 +533,6 @@ export default function ReportDetailPage() {
           </div>
         </div>
 
-        {/* Score distribution */}
         <div className="bg-card rounded-xl border border-border p-5 shadow-sm flex flex-col gap-4">
           <p className="text-sm font-semibold text-foreground">Overall Score Distribution</p>
           <ScoreDistBar scores={allScores} />
@@ -483,7 +559,6 @@ export default function ReportDetailPage() {
           </div>
         </div>
 
-        {/* Section satisfaction bars with donuts */}
         <div className="bg-card rounded-xl border border-border p-5 shadow-sm flex flex-col gap-3">
           <p className="text-sm font-semibold text-foreground">Section Satisfaction</p>
           {sectionData.map(s => {
@@ -517,7 +592,7 @@ export default function ReportDetailPage() {
         </div>
       </div>
 
-      {/* ── KPI OUTCOMES TABLE — collapsible ── */}
+      {/* ── KPI OUTCOMES TABLE ── */}
       <Collapsible open={openSections.kpiOutcomes} onOpenChange={() => toggle('kpiOutcomes')}>
         <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <CollapsibleTrigger asChild>
@@ -575,12 +650,11 @@ export default function ReportDetailPage() {
         </div>
       </Collapsible>
 
-      {/* ── SECTION: Average Scores with per-question breakdown — collapsible ── */}
+      {/* ── SECTION: per-question breakdown ── */}
       {sectionData.map(s => (
         <Collapsible key={s.key} open={openSections[`section_${s.key}`] ?? true}
           onOpenChange={() => toggle(`section_${s.key}`)}>
           <div className={cn('bg-card rounded-xl border shadow-sm overflow-hidden', s.colors.ring, 'ring-1')}>
-            {/* Section header */}
             <CollapsibleTrigger asChild>
               <button className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted/20 transition-colors">
                 <div className="flex items-center gap-3">
@@ -599,7 +673,6 @@ export default function ReportDetailPage() {
                     <p className="text-lg font-bold text-foreground">{s.avg.toFixed(2)}<span className="text-xs font-normal text-muted-foreground">/4</span></p>
                     <p className="text-xs text-muted-foreground">{s.totalScore} ÷ {s.divisor}</p>
                   </div>
-                  {/* KPI badge */}
                   {s.respCount > 0 && (
                     <span className={cn(
                       'text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide hidden sm:block',
@@ -633,14 +706,12 @@ export default function ReportDetailPage() {
                           key={qs.question.id}
                           className="bg-muted/30 rounded-lg border border-border/60 p-3 flex items-start gap-3"
                         >
-                          {/* Ring */}
                           <div className="relative shrink-0">
                             <MiniRing pct={qs.pct} color={s.colors.bar} size={52} />
                             <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-foreground">
                               {qs.pct.toFixed(0)}%
                             </span>
                           </div>
-                          {/* Text + score dots */}
                           <div className="flex-1 min-w-0 space-y-1.5">
                             <div className="flex items-start gap-1">
                               <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5">Q{qs.question.question_number}</span>
@@ -668,7 +739,7 @@ export default function ReportDetailPage() {
         </Collapsible>
       ))}
 
-      {/* ── INDIVIDUAL RESPONSES TABLE — collapsible ── */}
+      {/* ── INDIVIDUAL RESPONSES TABLE ── */}
       <Collapsible open={openSections.responses} onOpenChange={() => toggle('responses')}>
         <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <CollapsibleTrigger asChild>
@@ -751,7 +822,7 @@ export default function ReportDetailPage() {
         </div>
       </Collapsible>
 
-      {/* ── QUESTION REFERENCE — collapsible ── */}
+      {/* ── QUESTION REFERENCE ── */}
       <Collapsible open={openSections.questionRef} onOpenChange={() => toggle('questionRef')}>
         <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
           <CollapsibleTrigger asChild>
@@ -783,16 +854,12 @@ export default function ReportDetailPage() {
       </Collapsible>
 
       {/* ── Send Report Modal ── */}
-      {report && quarter && (
-        <SendReportModal
-          open={sendModalOpen}
-          onClose={() => setSendModalOpen(false)}
-          quarterLabel={quarter.label}
-          report={report}
-          questions={questions}
-          respondents={respondents}
-        />
-      )}
+      <SendReportModal
+        isOpen={sendModalOpen}
+        onClose={() => setSendModalOpen(false)}
+        quarterLabel={quarter.label}
+        onSend={handleSendReport}
+      />
 
     </div>
   );

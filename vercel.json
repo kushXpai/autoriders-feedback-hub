@@ -12,5 +12,10 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/send-report-email.ts": {
+      "maxDuration": 60
+    }
+  }
 }

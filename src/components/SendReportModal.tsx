@@ -1,426 +1,476 @@
-// src/components/SendReportModal.tsx
-import { useState, useRef, useCallback } from 'react';
-import { X, Plus, Trash2, Send, Loader2, CheckCircle2, AlertCircle, Mail } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { supabase } from '@/supabase/client';
-import type {
-  QuarterReport, Question, QuestionSection,
-  Customer, FeedbackAssignment, FeedbackResponse,
-} from '@/types/database.types';
+// components/SendReportModal.tsx
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Send, Mail, Plus, Trash2, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Respondent {
-  assignment: FeedbackAssignment;
-  customer: Customer;
-  isNew: boolean;
-  responses: FeedbackResponse[];
-}
+// ─────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────
 
 interface SendReportModalProps {
-  open: boolean;
+  isOpen: boolean;
   onClose: () => void;
   quarterLabel: string;
-  report: QuarterReport;
-  questions: Question[];
-  respondents: Respondent[];
+  onSend: (recipients: string[]) => Promise<void>;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+type ModalState = 'idle' | 'sending' | 'success' | 'error';
 
-const sectionLabels: Record<QuestionSection, string> = {
-  service_initiation: 'Service Initiation',
-  service_delivery: 'Service Delivery',
-  driver_quality: 'Driver Quality',
-  overall: 'Overall Experience',
-};
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SEND_TIMEOUT_MS = 30_000; // 30 s — fail fast instead of hanging forever
 
-const sectionAppliesTo: Record<QuestionSection, string> = {
-  service_initiation: 'New expats only',
-  service_delivery: 'All respondents',
-  driver_quality: 'All respondents',
-  overall: 'All respondents',
-};
-
-const sectionKeys: QuestionSection[] = [
-  'service_initiation',
-  'service_delivery',
-  'driver_quality',
-  'overall',
-];
-
-function getOutcomeLabel(outcome: string): string {
-  switch (outcome) {
-    case 'incentive':    return 'Incentive';
-    case 'on_target':    return 'On Target';
-    case 'below_target': return 'Below Target';
-    case 'penalty':      return 'Penalty';
-    default: return outcome;
-  }
-}
-
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-}
-
-// ─── Build payload helpers ────────────────────────────────────────────────────
-
-function buildOverview(
-  quarterLabel: string,
-  report: QuarterReport,
-  questions: Question[],
-  respondents: Respondent[],
-) {
-  const sections = sectionKeys.map(key => {
-    const sQuestions = questions.filter(q => q.section === key);
-    const isNewOnly = key === 'service_initiation';
-    const applicable = isNewOnly ? respondents.filter(r => r.isNew) : respondents;
-
-    let total = 0;
-    applicable.forEach(r => {
-      sQuestions.forEach(q => {
-        const resp = r.responses.find(res => String(res.question_id) === String(q.id));
-        if (resp) total += resp.score;
-      });
-    });
-
-    const divisor = applicable.length * sQuestions.length;
-    const avg = divisor > 0 ? total / divisor : 0;
-    const pct = (avg / 4) * 100;
-
-    return {
-      label: sectionLabels[key],
-      avg,
-      pct,
-      appliesTo: sectionAppliesTo[key],
-    };
-  });
-
-  return {
-    quarterLabel,
-    outcome: getOutcomeLabel(report.outcome),
-    totalRespondents: report.total_respondents,
-    totalAssigned: report.total_assigned,
-    newExpatCount: report.new_expat_count,
-    overallPct: Number(report.overall_pct),
-    sections,
-  };
-}
-
-function buildResponses(questions: Question[], respondents: Respondent[]) {
-  return respondents.map(r => {
-    const answers: Record<string, number | null> = {};
-    questions.forEach(q => {
-      const resp = r.responses.find(res => String(res.question_id) === String(q.id));
-      // N/A for new-expat-only questions on non-new respondents
-      if (q.is_new_expat_only && !r.isNew) {
-        answers[`Q${q.question_number}`] = null;
-      } else {
-        answers[`Q${q.question_number}`] = resp?.score ?? null;
-      }
-    });
-    return { customerName: r.customer.name, isNew: r.isNew, answers };
-  });
-}
-
-function buildQuestions(questions: Question[]) {
-  return questions.map(q => ({
-    number: q.question_number,
-    text: q.text,
-    section: q.section,
-  }));
-}
-
-function buildKpiRows(
-  report: QuarterReport,
-  questions: Question[],
-  respondents: Respondent[],
-) {
-  return sectionKeys.map(key => {
-    const sQuestions = questions.filter(q => q.section === key);
-    const isNewOnly = key === 'service_initiation';
-    const applicable = isNewOnly ? respondents.filter(r => r.isNew) : respondents;
-
-    let total = 0;
-    applicable.forEach(r => {
-      sQuestions.forEach(q => {
-        const resp = r.responses.find(res => String(res.question_id) === String(q.id));
-        if (resp) total += resp.score;
-      });
-    });
-
-    const divisor = applicable.length * sQuestions.length;
-    const avg = divisor > 0 ? total / divisor : 0;
-    const pct = (avg / 4) * 100;
-
-    const outcome =
-      pct >= 85 ? 'Incentive'
-      : pct >= 80 ? 'On Target'
-      : pct >= 70 ? 'Below Target'
-      : 'Penalty';
-
-    return { section: sectionLabels[key], avg, pct, target: 80, outcome };
-  });
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
-type SendState = 'idle' | 'sending' | 'success' | 'error';
+// ─────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────
 
 export default function SendReportModal({
-  open,
+  isOpen,
   onClose,
   quarterLabel,
-  report,
-  questions,
-  respondents,
+  onSend,
 }: SendReportModalProps) {
   const [emails, setEmails] = useState<string[]>(['']);
-  const [sendState, setSendState] = useState<SendState>('idle');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [sentCount, setSentCount] = useState(0);
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [state, setState] = useState<ModalState>('idle');
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
-  const reset = useCallback(() => {
-    setEmails(['']);
-    setSendState('idle');
-    setErrorMsg('');
-    setSentCount(0);
-  }, []);
-
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
-
-  const updateEmail = (idx: number, value: string) => {
-    setEmails(prev => prev.map((e, i) => (i === idx ? value : e)));
-  };
-
-  const addEmail = () => {
-    setEmails(prev => [...prev, '']);
-    // Focus the new input after render
-    setTimeout(() => {
-      inputRefs.current[emails.length]?.focus();
-    }, 50);
-  };
-
-  const removeEmail = (idx: number) => {
-    if (emails.length === 1) { setEmails(['']); return; }
-    setEmails(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent, idx: number) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (idx === emails.length - 1) addEmail();
-      else inputRefs.current[idx + 1]?.focus();
+  // Reset state every time the modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setEmails(['']);
+      setState('idle');
+      setErrorMsg('');
     }
+  }, [isOpen]);
+
+  // Lock body scroll while open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && state !== 'sending') onClose();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isOpen, state, onClose]);
+
+  const validEmails = emails.filter(e => EMAIL_REGEX.test(e.trim()));
+  const validCount = validEmails.length;
+
+  const updateEmail = (index: number, value: string) => {
+    setEmails(prev => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
   };
 
-  const validEmails = emails.filter(e => isValidEmail(e));
-  const canSend = validEmails.length > 0 && sendState === 'idle';
+  const addRecipient = () => setEmails(prev => [...prev, '']);
 
-  const handleSend = async () => {
-    setSendState('sending');
+  const removeRecipient = (index: number) => {
+    setEmails(prev => prev.length === 1 ? [''] : prev.filter((_, i) => i !== index));
+  };
+
+  const handleSend = useCallback(async () => {
+    if (validCount === 0 || state === 'sending') return;
+
+    setState('sending');
     setErrorMsg('');
+
+    // Race the actual send against a timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timed out after 30 seconds. Please try again.')), SEND_TIMEOUT_MS)
+    );
 
     try {
-      const { data: { session } } = await (supabase as any).auth.getSession();
-      const token = session?.access_token;
-      if (!token) throw new Error('Not authenticated');
-
-      const overview = buildOverview(quarterLabel, report, questions, respondents);
-      const responses = buildResponses(questions, respondents);
-      const builtQuestions = buildQuestions(questions);
-      const kpiRows = buildKpiRows(report, questions, respondents);
-
-      const res = await fetch('/api/send-report-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          recipients: validEmails,
-          overview,
-          responses,
-          questions: builtQuestions,
-          kpiRows,
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Failed to send');
-
-      setSentCount(json.sent ?? validEmails.length);
-      setSendState('success');
+      await Promise.race([onSend(validEmails), timeoutPromise]);
+      setState('success');
     } catch (err: any) {
-      setErrorMsg(err.message ?? 'Something went wrong. Please try again.');
-      setSendState('error');
+      console.error('[SendReportModal] send failed:', err);
+      setState('error');
+      setErrorMsg(
+        err?.message?.includes('timed out')
+          ? 'The request timed out. The server may be unreachable — please check your network or try again.'
+          : err?.message || 'An unexpected error occurred. Please try again.'
+      );
     }
-  };
+  }, [validCount, validEmails, state, onSend]);
 
-  if (!open) return null;
+  if (!isOpen) return null;
 
   return (
-    /* Backdrop */
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={e => { if (e.target === e.currentTarget) handleClose(); }}
-    >
-      {/* Dim overlay */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+    <>
+      {/* ── Backdrop — fixed, full viewport, blurred ── */}
+      <div
+        onClick={state !== 'sending' ? onClose : undefined}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9998,
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
+          backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        }}
+      />
 
-      {/* Panel */}
-      <div className="relative bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md animate-fade-in-up">
+      {/* ── Modal — fixed, viewport-centred ── */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="send-report-title"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px',
+          pointerEvents: 'none',
+        }}
+      >
+        <div
+          style={{
+            pointerEvents: 'auto',
+            background: '#ffffff',
+            borderRadius: '16px',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.18)',
+            width: '100%',
+            maxWidth: '480px',
+            overflow: 'hidden',
+            animation: 'modalIn 0.18s ease-out',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* ── Header ── */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '20px 24px 16px',
+            borderBottom: '1px solid #f1f5f9',
+          }}>
+            <div style={{
+              width: 36,
+              height: 36,
+              borderRadius: '10px',
+              background: '#f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <Mail size={18} color="#475569" />
+            </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Mail className="w-4 h-4 text-primary" />
+            <div style={{ flex: 1 }}>
+              <h2 id="send-report-title" style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#0f172a' }}>
+                Send Report
+              </h2>
+              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>{quarterLabel}</p>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Send Report</p>
-              <p className="text-xs text-muted-foreground">{quarterLabel}</p>
-            </div>
+
+            <button
+              onClick={onClose}
+              disabled={state === 'sending'}
+              aria-label="Close"
+              style={{
+                border: 'none',
+                background: 'transparent',
+                cursor: state === 'sending' ? 'not-allowed' : 'pointer',
+                padding: '4px',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                color: '#94a3b8',
+                opacity: state === 'sending' ? 0.4 : 1,
+              }}
+            >
+              <X size={18} />
+            </button>
           </div>
-          <button
-            onClick={handleClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
 
-        {/* Body */}
-        <div className="px-6 py-5 space-y-4">
+          {/* ── Body ── */}
+          <div style={{ padding: '20px 24px' }}>
 
-          {/* Success state */}
-          {sendState === 'success' && (
-            <div className="flex flex-col items-center py-6 gap-3 text-center">
-              <div className="w-14 h-14 rounded-full bg-emerald-500/10 flex items-center justify-center">
-                <CheckCircle2 className="w-7 h-7 text-emerald-500" />
+            {/* SUCCESS STATE */}
+            {state === 'success' && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                padding: '16px 0 8px',
+                gap: '12px',
+                textAlign: 'center',
+              }}>
+                <CheckCircle size={44} color="#10b981" />
+                <div>
+                  <p style={{ margin: '0 0 4px', fontWeight: 600, fontSize: '15px', color: '#0f172a' }}>
+                    Report Sent Successfully
+                  </p>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                    Sent to {validCount} recipient{validCount !== 1 ? 's' : ''}.
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">Report Sent!</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Successfully delivered to {sentCount} recipient{sentCount !== 1 ? 's' : ''}.
-                  <br />The Excel report is attached to the email.
-                </p>
+            )}
+
+            {/* ERROR STATE */}
+            {state === 'error' && (
+              <div style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '10px',
+                padding: '12px 14px',
+                display: 'flex',
+                gap: '10px',
+                alignItems: 'flex-start',
+                marginBottom: '16px',
+              }}>
+                <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />
+                <div>
+                  <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: 600, color: '#991b1b' }}>
+                    Failed to send report
+                  </p>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#b91c1c' }}>{errorMsg}</p>
+                </div>
               </div>
-              <Button size="sm" variant="outline" onClick={handleClose} className="mt-2">
-                Close
-              </Button>
-            </div>
-          )}
+            )}
 
-          {/* Default / Error state */}
-          {sendState !== 'success' && (
-            <>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2.5">
-                  Recipients <span className="text-primary font-semibold">({validEmails.length} valid)</span>
-                </p>
+            {/* RECIPIENTS FORM (shown in idle + error + sending) */}
+            {state !== 'success' && (
+              <>
+                <div style={{ marginBottom: '4px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '10px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}>
+                    Recipients{' '}
+                    <span style={{
+                      textTransform: 'none',
+                      fontWeight: 400,
+                      color: validCount > 0 ? '#10b981' : '#94a3b8',
+                    }}>
+                      ({validCount} valid)
+                    </span>
+                  </label>
 
-                <div className="space-y-2">
-                  {emails.map((email, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <div className={cn(
-                        'flex-1 flex items-center gap-2 rounded-lg border bg-background px-3 py-2 transition-colors',
-                        email && !isValidEmail(email)
-                          ? 'border-red-500/50 bg-red-500/5'
-                          : 'border-border focus-within:border-primary/50',
-                      )}>
-                        <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <input
-                          ref={el => { inputRefs.current[idx] = el; }}
-                          type="email"
-                          placeholder="email@example.com"
-                          value={email}
-                          onChange={e => updateEmail(idx, e.target.value)}
-                          onKeyDown={e => handleKeyDown(e, idx)}
-                          className="flex-1 text-sm bg-transparent outline-none text-foreground placeholder:text-muted-foreground/50"
-                          disabled={sendState === 'sending'}
-                        />
-                        {email && isValidEmail(email) && (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        )}
-                      </div>
-                      <button
-                        onClick={() => removeEmail(idx)}
-                        disabled={emails.length === 1 && email === ''}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {emails.map((email, index) => {
+                      const isValid = EMAIL_REGEX.test(email.trim());
+                      const hasContent = email.trim().length > 0;
+                      return (
+                        <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <div style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            border: `1px solid ${hasContent && !isValid ? '#fca5a5' : '#e2e8f0'}`,
+                            borderRadius: '8px',
+                            padding: '0 10px',
+                            background: state === 'sending' ? '#f8fafc' : '#fff',
+                            transition: 'border-color 0.15s',
+                          }}>
+                            <Mail size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
+                            <input
+                              type="email"
+                              value={email}
+                              onChange={e => updateEmail(index, e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') addRecipient(); }}
+                              placeholder="email@example.com"
+                              disabled={state === 'sending'}
+                              style={{
+                                flex: 1,
+                                border: 'none',
+                                outline: 'none',
+                                fontSize: '13px',
+                                color: '#0f172a',
+                                background: 'transparent',
+                                padding: '9px 0',
+                                cursor: state === 'sending' ? 'not-allowed' : 'text',
+                              }}
+                            />
+                            {isValid && (
+                              <CheckCircle size={14} color="#10b981" style={{ flexShrink: 0 }} />
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => removeRecipient(index)}
+                            disabled={state === 'sending'}
+                            aria-label="Remove recipient"
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              cursor: state === 'sending' ? 'not-allowed' : 'pointer',
+                              padding: '6px',
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              color: '#cbd5e1',
+                              opacity: state === 'sending' ? 0.4 : 1,
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    onClick={addRecipient}
+                    disabled={state === 'sending'}
+                    style={{
+                      marginTop: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '12px',
+                      color: state === 'sending' ? '#cbd5e1' : '#6366f1',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: state === 'sending' ? 'not-allowed' : 'pointer',
+                      padding: '4px 2px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <Plus size={13} />
+                    Add another recipient
+                  </button>
                 </div>
 
-                <button
-                  onClick={addEmail}
-                  disabled={sendState === 'sending'}
-                  className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add another recipient
-                </button>
-              </div>
-
-              {/* What's included note */}
-              <div className="bg-muted/40 rounded-lg border border-border px-3.5 py-3 space-y-1.5">
-                <p className="text-[11px] font-semibold text-foreground uppercase tracking-wide">What's included</p>
-                <div className="space-y-1">
+                {/* What's Included box */}
+                <div style={{
+                  marginTop: '16px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                }}>
+                  <p style={{ margin: '0 0 8px', fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                    What's Included
+                  </p>
                   {[
                     'Excel file attached (3 sheets)',
                     'Sheet 1: Report overview & KPIs',
                     'Sheet 2: Individual responses table',
                     'Sheet 3: Full detailed breakdown',
-                  ].map(line => (
-                    <p key={line} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                      <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0" />
-                      {line}
-                    </p>
+                  ].map(item => (
+                    <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>•</span>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>{item}</span>
+                    </div>
                   ))}
                 </div>
-              </div>
-
-              {/* Error banner */}
-              {sendState === 'error' && errorMsg && (
-                <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
-                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                  <p className="text-xs text-red-600">{errorMsg}</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        {sendState !== 'success' && (
-          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border">
-            <Button variant="ghost" size="sm" onClick={handleClose} disabled={sendState === 'sending'}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSend}
-              disabled={!canSend}
-              className="min-w-[110px]"
-            >
-              {sendState === 'sending' ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending…</>
-              ) : (
-                <><Send className="w-4 h-4 mr-2" />Send Report</>
-              )}
-            </Button>
+              </>
+            )}
           </div>
-        )}
 
+          {/* ── Footer ── */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '8px',
+            padding: '12px 24px 20px',
+            borderTop: state !== 'success' ? '1px solid #f1f5f9' : 'none',
+          }}>
+            {state === 'success' ? (
+              <button
+                onClick={onClose}
+                style={{
+                  padding: '9px 20px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#10b981',
+                  color: '#fff',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Done
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={onClose}
+                  disabled={state === 'sending'}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    background: '#fff',
+                    color: '#475569',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: state === 'sending' ? 'not-allowed' : 'pointer',
+                    opacity: state === 'sending' ? 0.5 : 1,
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={handleSend}
+                  disabled={validCount === 0 || state === 'sending'}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '7px',
+                    padding: '9px 18px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: validCount === 0 ? '#cbd5e1' : '#6366f1',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: validCount === 0 || state === 'sending' ? 'not-allowed' : 'pointer',
+                    transition: 'background 0.15s',
+                  }}
+                >
+                  {state === 'sending' ? (
+                    <>
+                      <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} />
+                      Send Report
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+
+      {/* Inline keyframe animations */}
+      <style>{`
+        @keyframes modalIn {
+          from { opacity: 0; transform: scale(0.96) translateY(8px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0);    }
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg);   }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
+    </>
   );
 }
