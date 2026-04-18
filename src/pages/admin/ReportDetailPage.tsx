@@ -756,65 +756,82 @@ export default function ReportDetailPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="sticky left-0 bg-card z-10 min-w-[180px]">Question</TableHead>
-                    {respondents.map(r => (
-                      <TableHead key={r.assignment.id} className="text-center min-w-[60px] text-xs">
-                        <div>
-                          <p>{r.customer.name.split(' ')[0]}</p>
-                          {r.isNew && <span className="text-[9px] text-indigo-500 font-medium">NEW</span>}
-                        </div>
-                      </TableHead>
-                    ))}
+                    <TableHead className="sticky left-0 bg-card z-10 min-w-[160px]">Customer</TableHead>
+                    <TableHead className="text-center min-w-[60px] text-xs">Type</TableHead>
+                    {sectionKeys.flatMap(sectionKey =>
+                      questions
+                        .filter(q => q.section === sectionKey)
+                        .map(q => (
+                          <TableHead key={q.id} className="text-center min-w-[44px] text-xs px-1">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span
+                                className="w-1.5 h-1.5 rounded-full"
+                                style={{ backgroundColor: sectionColors[sectionKey].bar }}
+                              />
+                              <span className="font-mono">Q{q.question_number}</span>
+                            </div>
+                          </TableHead>
+                        ))
+                    )}
+                  </TableRow>
+                  {/* Section label header row */}
+                  <TableRow className="bg-muted/20">
+                    <TableCell className="sticky left-0 bg-muted/20 text-[10px] text-muted-foreground py-1" colSpan={2} />
+                    {sectionKeys.map(sectionKey => {
+                      const count = questions.filter(q => q.section === sectionKey).length;
+                      if (count === 0) return null;
+                      return (
+                        <TableCell
+                          key={sectionKey}
+                          colSpan={count}
+                          className="text-center py-1 text-[10px] font-semibold uppercase tracking-wide"
+                          style={{ color: sectionColors[sectionKey].bar, backgroundColor: `${sectionColors[sectionKey].bar}10` }}
+                        >
+                          {sectionLabels[sectionKey]}
+                        </TableCell>
+                      );
+                    })}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sectionKeys.map(sectionKey => {
-                    const sectionQuestions = questions.filter(q => q.section === sectionKey);
-                    return (
-                      <>
-                        <TableRow key={`header-${sectionKey}`}>
-                          <TableCell
-                            colSpan={respondents.length + 1}
-                            className="py-2"
-                            style={{ backgroundColor: `${sectionColors[sectionKey].bar}18` }}
-                          >
-                            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: sectionColors[sectionKey].bar }}>
-                              {sectionLabels[sectionKey]}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                        {sectionQuestions.map(q => (
-                          <TableRow key={q.id}>
-                            <TableCell className="sticky left-0 bg-card z-10 text-xs">
-                              <span className="font-mono text-muted-foreground mr-1.5">Q{q.question_number}</span>
-                              {q.text.length > 50 ? q.text.substring(0, 50) + '…' : q.text}
-                            </TableCell>
-                            {respondents.map(r => {
-                              if (q.is_new_expat_only && !r.isNew) {
-                                return (
-                                  <TableCell key={r.assignment.id} className="text-center">
-                                    <span className="text-muted-foreground/20">—</span>
-                                  </TableCell>
-                                );
-                              }
-                              const resp = r.responses.find(res => res.question_id === q.id);
-                              if (!resp) return <TableCell key={r.assignment.id} className="text-center">—</TableCell>;
+                  {respondents.map(r => (
+                    <TableRow key={r.assignment.id}>
+                      <TableCell className="sticky left-0 bg-card z-10 text-xs font-medium">
+                        {r.customer.name}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {r.isNew
+                          ? <span className="text-[9px] font-semibold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded-full">NEW</span>
+                          : <span className="text-[9px] text-muted-foreground">Exist.</span>
+                        }
+                      </TableCell>
+                      {sectionKeys.flatMap(sectionKey =>
+                        questions
+                          .filter(q => q.section === sectionKey)
+                          .map(q => {
+                            if (q.is_new_expat_only && !r.isNew) {
                               return (
-                                <TableCell key={r.assignment.id} className="text-center">
-                                  <span className={cn(
-                                    'inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white',
-                                    getScoreColor(resp.score)
-                                  )}>
-                                    {resp.score}
-                                  </span>
+                                <TableCell key={q.id} className="text-center px-1">
+                                  <span className="text-muted-foreground/20 text-xs">—</span>
                                 </TableCell>
                               );
-                            })}
-                          </TableRow>
-                        ))}
-                      </>
-                    );
-                  })}
+                            }
+                            const resp = r.responses.find(res => res.question_id === q.id);
+                            if (!resp) return <TableCell key={q.id} className="text-center px-1 text-xs">—</TableCell>;
+                            return (
+                              <TableCell key={q.id} className="text-center px-1">
+                                <span className={cn(
+                                  'inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white',
+                                  getScoreColor(resp.score)
+                                )}>
+                                  {resp.score}
+                                </span>
+                              </TableCell>
+                            );
+                          })
+                      )}
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
