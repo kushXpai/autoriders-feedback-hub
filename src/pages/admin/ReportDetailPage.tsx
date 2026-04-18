@@ -391,7 +391,7 @@ export default function ReportDetailPage() {
 
     // Client-side 25s timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25_000);
+    const timeoutId = setTimeout(() => controller.abort(), 50_000);
 
     let response: Response;
     try {

@@ -1,5 +1,18 @@
 // components/SendReportModal.tsx
+// ─────────────────────────────────────────────────────────────────────────────
+// FIXES APPLIED
+// 1. Modal is now rendered via a React Portal into document.body — this
+//    guarantees it escapes ANY parent stacking context (overflow:hidden,
+//    transform, will-change, etc.) that was preventing position:fixed from
+//    being viewport-relative.
+// 2. Backdrop uses backdropFilter blur (unchanged) + pointer-events fix.
+// 3. Timeout increased to 45s to give the API enough runway (the API itself
+//    has a 20s per-email limit + auth overhead).
+// 4. All success/error states, animations, and accessibility are preserved.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Send, Mail, Plus, Trash2, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
 // ─────────────────────────────────────────
@@ -16,7 +29,9 @@ interface SendReportModalProps {
 type ModalState = 'idle' | 'sending' | 'success' | 'error';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const SEND_TIMEOUT_MS = 30_000; // 30 s — fail fast instead of hanging forever
+// 45 s — covers auth (2–3 s) + Excel build (~1 s) + email send (up to 20 s)
+// with headroom to spare before Vercel's 60 s function limit.
+const SEND_TIMEOUT_MS = 45_000;
 
 // ─────────────────────────────────────────
 // COMPONENT
@@ -31,6 +46,8 @@ export default function SendReportModal({
   const [emails, setEmails] = useState<string[]>(['']);
   const [state, setState] = useState<ModalState>('idle');
   const [errorMsg, setErrorMsg] = useState<string>('');
+  // Track elapsed seconds while sending so the user sees "Sending… (5s)"
+  const [elapsedSec, setElapsedSec] = useState(0);
 
   // Reset state every time the modal opens
   useEffect(() => {
@@ -38,6 +55,7 @@ export default function SendReportModal({
       setEmails(['']);
       setState('idle');
       setErrorMsg('');
+      setElapsedSec(0);
     }
   }, [isOpen]);
 
@@ -60,6 +78,13 @@ export default function SendReportModal({
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen, state, onClose]);
+
+  // Elapsed-seconds ticker — helps users know it's still working
+  useEffect(() => {
+    if (state !== 'sending') { setElapsedSec(0); return; }
+    const id = setInterval(() => setElapsedSec(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [state]);
 
   const validEmails = emails.filter(e => EMAIL_REGEX.test(e.trim()));
   const validCount = validEmails.length;
@@ -84,9 +109,11 @@ export default function SendReportModal({
     setState('sending');
     setErrorMsg('');
 
-    // Race the actual send against a timeout promise
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Request timed out after 30 seconds. Please try again.')), SEND_TIMEOUT_MS)
+      setTimeout(
+        () => reject(new Error('Request timed out. The server may be busy — please try again in a moment.')),
+        SEND_TIMEOUT_MS,
+      ),
     );
 
     try {
@@ -97,56 +124,75 @@ export default function SendReportModal({
       setState('error');
       setErrorMsg(
         err?.message?.includes('timed out')
-          ? 'The request timed out. The server may be unreachable — please check your network or try again.'
-          : err?.message || 'An unexpected error occurred. Please try again.'
+          ? 'The request timed out. Check your network connection or try again.'
+          : err?.message || 'An unexpected error occurred. Please try again.',
       );
     }
   }, [validCount, validEmails, state, onSend]);
 
   if (!isOpen) return null;
 
-  return (
+  // ── Portal target ──────────────────────────────────────────────────────────
+  // Rendering into document.body means NO parent CSS can affect position:fixed.
+  // This is the definitive fix for modals that appear "attached to the page".
+  const portalTarget = typeof document !== 'undefined' ? document.body : null;
+  if (!portalTarget) return null;
+
+  const modal = (
     <>
-      {/* ── Backdrop — fixed, full viewport, blurred ── */}
+      {/* ── Keyframe styles injected once ── */}
+      <style>{`
+        @keyframes crModalIn {
+          from { opacity: 0; transform: scale(0.96) translateY(10px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0);    }
+        }
+        @keyframes crSpin {
+          from { transform: rotate(0deg);   }
+          to   { transform: rotate(360deg); }
+        }
+        .cr-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 99998;
+          background: rgba(15, 23, 42, 0.5);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+        }
+        .cr-modal-center {
+          position: fixed;
+          inset: 0;
+          z-index: 99999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          pointer-events: none;
+        }
+        .cr-modal-box {
+          pointer-events: auto;
+          background: #ffffff;
+          border-radius: 16px;
+          box-shadow: 0 25px 60px rgba(0,0,0,0.22);
+          width: 100%;
+          max-width: 480px;
+          overflow: hidden;
+          animation: crModalIn 0.2s ease-out;
+        }
+      `}</style>
+
+      {/* ── Blurred backdrop ── */}
       <div
+        className="cr-modal-backdrop"
         onClick={state !== 'sending' ? onClose : undefined}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 9998,
-          backdropFilter: 'blur(6px)',
-          WebkitBackdropFilter: 'blur(6px)',
-          backgroundColor: 'rgba(15, 23, 42, 0.45)',
-        }}
       />
 
-      {/* ── Modal — fixed, viewport-centred ── */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="send-report-title"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px',
-          pointerEvents: 'none',
-        }}
-      >
+      {/* ── Viewport-centred container ── */}
+      <div className="cr-modal-center">
         <div
-          style={{
-            pointerEvents: 'auto',
-            background: '#ffffff',
-            borderRadius: '16px',
-            boxShadow: '0 25px 50px rgba(0,0,0,0.18)',
-            width: '100%',
-            maxWidth: '480px',
-            overflow: 'hidden',
-            animation: 'modalIn 0.18s ease-out',
-          }}
+          className="cr-modal-box"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="send-report-title"
           onClick={e => e.stopPropagation()}
         >
           {/* ── Header ── */}
@@ -158,13 +204,10 @@ export default function SendReportModal({
             borderBottom: '1px solid #f1f5f9',
           }}>
             <div style={{
-              width: 36,
-              height: 36,
+              width: 36, height: 36,
               borderRadius: '10px',
               background: '#f1f5f9',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}>
               <Mail size={18} color="#475569" />
@@ -182,13 +225,10 @@ export default function SendReportModal({
               disabled={state === 'sending'}
               aria-label="Close"
               style={{
-                border: 'none',
-                background: 'transparent',
+                border: 'none', background: 'transparent',
                 cursor: state === 'sending' ? 'not-allowed' : 'pointer',
-                padding: '4px',
-                borderRadius: '6px',
-                display: 'flex',
-                alignItems: 'center',
+                padding: '4px', borderRadius: '6px',
+                display: 'flex', alignItems: 'center',
                 color: '#94a3b8',
                 opacity: state === 'sending' ? 0.4 : 1,
               }}
@@ -200,15 +240,11 @@ export default function SendReportModal({
           {/* ── Body ── */}
           <div style={{ padding: '20px 24px' }}>
 
-            {/* SUCCESS STATE */}
+            {/* SUCCESS */}
             {state === 'success' && (
               <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                padding: '16px 0 8px',
-                gap: '12px',
-                textAlign: 'center',
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                padding: '16px 0 8px', gap: '12px', textAlign: 'center',
               }}>
                 <CheckCircle size={44} color="#10b981" />
                 <div>
@@ -216,150 +252,119 @@ export default function SendReportModal({
                     Report Sent Successfully
                   </p>
                   <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
-                    Sent to {validCount} recipient{validCount !== 1 ? 's' : ''}.
+                    Sent to {validCount} recipient{validCount !== 1 ? 's' : ''}. Check your inbox.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* ERROR STATE */}
+            {/* ERROR */}
             {state === 'error' && (
               <div style={{
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: '10px',
-                padding: '12px 14px',
-                display: 'flex',
-                gap: '10px',
-                alignItems: 'flex-start',
-                marginBottom: '16px',
+                display: 'flex', gap: '10px',
+                background: '#fef2f2', border: '1px solid #fecaca',
+                borderRadius: '10px', padding: '12px 14px', marginBottom: '16px',
               }}>
-                <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />
+                <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: 1 }} />
                 <div>
-                  <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: 600, color: '#991b1b' }}>
-                    Failed to send report
+                  <p style={{ margin: '0 0 2px', fontWeight: 600, fontSize: '13px', color: '#b91c1c' }}>
+                    Failed to send
                   </p>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#b91c1c' }}>{errorMsg}</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#dc2626', lineHeight: 1.5 }}>
+                    {errorMsg}
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* RECIPIENTS FORM (shown in idle + error + sending) */}
+            {/* IDLE / SENDING / ERROR — show form */}
             {state !== 'success' && (
               <>
-                <div style={{ marginBottom: '4px' }}>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '10px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
+                <label style={{
+                  display: 'block', fontSize: '12px', fontWeight: 600,
+                  color: '#475569', marginBottom: '10px',
+                  textTransform: 'uppercase', letterSpacing: '0.5px',
+                }}>
+                  Recipients{' '}
+                  <span style={{
+                    textTransform: 'none', fontWeight: 400,
+                    color: validCount > 0 ? '#10b981' : '#94a3b8',
                   }}>
-                    Recipients{' '}
-                    <span style={{
-                      textTransform: 'none',
-                      fontWeight: 400,
-                      color: validCount > 0 ? '#10b981' : '#94a3b8',
-                    }}>
-                      ({validCount} valid)
-                    </span>
-                  </label>
+                    ({validCount} valid)
+                  </span>
+                </label>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {emails.map((email, index) => {
-                      const isValid = EMAIL_REGEX.test(email.trim());
-                      const hasContent = email.trim().length > 0;
-                      return (
-                        <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <div style={{
-                            flex: 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            border: `1px solid ${hasContent && !isValid ? '#fca5a5' : '#e2e8f0'}`,
-                            borderRadius: '8px',
-                            padding: '0 10px',
-                            background: state === 'sending' ? '#f8fafc' : '#fff',
-                            transition: 'border-color 0.15s',
-                          }}>
-                            <Mail size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
-                            <input
-                              type="email"
-                              value={email}
-                              onChange={e => updateEmail(index, e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') addRecipient(); }}
-                              placeholder="email@example.com"
-                              disabled={state === 'sending'}
-                              style={{
-                                flex: 1,
-                                border: 'none',
-                                outline: 'none',
-                                fontSize: '13px',
-                                color: '#0f172a',
-                                background: 'transparent',
-                                padding: '9px 0',
-                                cursor: state === 'sending' ? 'not-allowed' : 'text',
-                              }}
-                            />
-                            {isValid && (
-                              <CheckCircle size={14} color="#10b981" style={{ flexShrink: 0 }} />
-                            )}
-                          </div>
-
-                          <button
-                            onClick={() => removeRecipient(index)}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {emails.map((email, index) => {
+                    const isValid = EMAIL_REGEX.test(email.trim());
+                    const hasContent = email.trim().length > 0;
+                    return (
+                      <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <div style={{
+                          flex: 1, display: 'flex', alignItems: 'center', gap: '8px',
+                          border: `1px solid ${hasContent && !isValid ? '#fca5a5' : '#e2e8f0'}`,
+                          borderRadius: '8px', padding: '0 10px',
+                          background: state === 'sending' ? '#f8fafc' : '#fff',
+                          transition: 'border-color 0.15s',
+                        }}>
+                          <Mail size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
+                          <input
+                            type="email"
+                            value={email}
+                            onChange={e => updateEmail(index, e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') addRecipient(); }}
+                            placeholder="email@example.com"
                             disabled={state === 'sending'}
-                            aria-label="Remove recipient"
                             style={{
-                              border: 'none',
-                              background: 'transparent',
-                              cursor: state === 'sending' ? 'not-allowed' : 'pointer',
-                              padding: '6px',
-                              borderRadius: '6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              color: '#cbd5e1',
-                              opacity: state === 'sending' ? 0.4 : 1,
+                              flex: 1, border: 'none', outline: 'none',
+                              fontSize: '13px', color: '#0f172a',
+                              background: 'transparent', padding: '9px 0',
+                              cursor: state === 'sending' ? 'not-allowed' : 'text',
                             }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          />
+                          {isValid && <CheckCircle size={14} color="#10b981" style={{ flexShrink: 0 }} />}
                         </div>
-                      );
-                    })}
-                  </div>
 
-                  <button
-                    onClick={addRecipient}
-                    disabled={state === 'sending'}
-                    style={{
-                      marginTop: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '12px',
-                      color: state === 'sending' ? '#cbd5e1' : '#6366f1',
-                      background: 'transparent',
-                      border: 'none',
-                      cursor: state === 'sending' ? 'not-allowed' : 'pointer',
-                      padding: '4px 2px',
-                      fontWeight: 500,
-                    }}
-                  >
-                    <Plus size={13} />
-                    Add another recipient
-                  </button>
+                        <button
+                          onClick={() => removeRecipient(index)}
+                          disabled={state === 'sending'}
+                          aria-label="Remove recipient"
+                          style={{
+                            border: 'none', background: 'transparent',
+                            cursor: state === 'sending' ? 'not-allowed' : 'pointer',
+                            padding: '6px', borderRadius: '6px',
+                            display: 'flex', alignItems: 'center',
+                            color: '#cbd5e1',
+                            opacity: state === 'sending' ? 0.4 : 1,
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* What's Included box */}
+                <button
+                  onClick={addRecipient}
+                  disabled={state === 'sending'}
+                  style={{
+                    marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px',
+                    fontSize: '12px',
+                    color: state === 'sending' ? '#cbd5e1' : '#6366f1',
+                    background: 'transparent', border: 'none',
+                    cursor: state === 'sending' ? 'not-allowed' : 'pointer',
+                    padding: '4px 2px', fontWeight: 500,
+                  }}
+                >
+                  <Plus size={13} />
+                  Add another recipient
+                </button>
+
+                {/* What's Included */}
                 <div style={{
-                  marginTop: '16px',
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '10px',
-                  padding: '12px 14px',
+                  marginTop: '16px', background: '#f8fafc',
+                  border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 14px',
                 }}>
                   <p style={{ margin: '0 0 8px', fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
                     What's Included
@@ -382,9 +387,7 @@ export default function SendReportModal({
 
           {/* ── Footer ── */}
           <div style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '8px',
+            display: 'flex', justifyContent: 'flex-end', gap: '8px',
             padding: '12px 24px 20px',
             borderTop: state !== 'success' ? '1px solid #f1f5f9' : 'none',
           }}>
@@ -392,14 +395,9 @@ export default function SendReportModal({
               <button
                 onClick={onClose}
                 style={{
-                  padding: '9px 20px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  background: '#10b981',
-                  color: '#fff',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
+                  padding: '9px 20px', borderRadius: '8px', border: 'none',
+                  background: '#10b981', color: '#fff',
+                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
                 }}
               >
                 Done
@@ -410,13 +408,9 @@ export default function SendReportModal({
                   onClick={onClose}
                   disabled={state === 'sending'}
                   style={{
-                    padding: '9px 16px',
-                    borderRadius: '8px',
-                    border: '1px solid #e2e8f0',
-                    background: '#fff',
-                    color: '#475569',
-                    fontSize: '13px',
-                    fontWeight: 500,
+                    padding: '9px 16px', borderRadius: '8px',
+                    border: '1px solid #e2e8f0', background: '#fff',
+                    color: '#475569', fontSize: '13px', fontWeight: 500,
                     cursor: state === 'sending' ? 'not-allowed' : 'pointer',
                     opacity: state === 'sending' ? 0.5 : 1,
                   }}
@@ -428,24 +422,23 @@ export default function SendReportModal({
                   onClick={handleSend}
                   disabled={validCount === 0 || state === 'sending'}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '7px',
-                    padding: '9px 18px',
-                    borderRadius: '8px',
-                    border: 'none',
+                    display: 'flex', alignItems: 'center', gap: '7px',
+                    padding: '9px 18px', borderRadius: '8px', border: 'none',
                     background: validCount === 0 ? '#cbd5e1' : '#6366f1',
-                    color: '#fff',
-                    fontSize: '13px',
-                    fontWeight: 600,
+                    color: '#fff', fontSize: '13px', fontWeight: 600,
                     cursor: validCount === 0 || state === 'sending' ? 'not-allowed' : 'pointer',
                     transition: 'background 0.15s',
+                    minWidth: 130,
+                    justifyContent: 'center',
                   }}
                 >
                   {state === 'sending' ? (
                     <>
-                      <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
-                      Sending...
+                      <Loader2
+                        size={14}
+                        style={{ animation: 'crSpin 0.8s linear infinite', flexShrink: 0 }}
+                      />
+                      Sending{elapsedSec > 0 ? ` (${elapsedSec}s)` : '…'}
                     </>
                   ) : (
                     <>
@@ -459,18 +452,8 @@ export default function SendReportModal({
           </div>
         </div>
       </div>
-
-      {/* Inline keyframe animations */}
-      <style>{`
-        @keyframes modalIn {
-          from { opacity: 0; transform: scale(0.96) translateY(8px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0);    }
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg);   }
-          to   { transform: rotate(360deg); }
-        }
-      `}</style>
     </>
   );
+
+  return createPortal(modal, portalTarget);
 }
